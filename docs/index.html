@@ -987,18 +987,30 @@ function deleteBackup(id){localStorage.setItem(BACKUPS_KEY,JSON.stringify(backup
 function inventoryData(){try{return JSON.parse(localStorage.getItem(INVENTORY_KEY)||'[]')}catch(e){return[]}}
 function saveInventoryData(list){localStorage.setItem(INVENTORY_KEY,JSON.stringify(list))}
 function nextArticleNo(){
+  const year = new Date().getFullYear();
   const data = inventoryData();
-  let max = 0;
+  let maxNum = 0;
   data.forEach(item => {
-    const cleaned = String(item.articleNo || '').replace(/\D/g, '');
-    const num = parseInt(cleaned.slice(-4), 10) || 0;
-    if (num > max) max = num;
+    let str = String(item.articleNo || '');
+    // extract numeric part, prefer the last 4 digits (handles "2026-0003" or "0003")
+    const digits = str.replace(/\D/g, '');
+    let num = 0;
+    if (digits.length >= 4) {
+      num = parseInt(digits.slice(-4), 10);
+    } else if (digits.length > 0) {
+      num = parseInt(digits, 10);
+    }
+    if (num > maxNum) maxNum = num;
   });
-  return String(max + 1).padStart(4, '0');
+  const next = maxNum + 1;
+  return year + '-' + String(next).padStart(4, '0');
 }
 
+
+
 function renumberArticles(){
-  if(!confirm('Alle Artikelnummern sequentiell neu vergeben (0001, 0002, ...)?\nDie ältesten Artikel bekommen die niedrigsten Nummern.')) return;
+  const year = new Date().getFullYear();
+  if(!confirm('Alle Artikelnummern sequentiell neu vergeben (' + year + '-0001, ' + year + '-0002, ...)?\nDie ältesten Artikel bekommen die niedrigsten Nummern.')) return;
   let list = inventoryData();
   // Sort by updated date ascending (oldest first) for sequential numbering
   list.sort((a, b) => {
@@ -1007,7 +1019,7 @@ function renumberArticles(){
     return da - db;
   });
   list.forEach((item, idx) => {
-    item.articleNo = String(idx + 1).padStart(4, '0');
+    item.articleNo = year + '-' + String(idx + 1).padStart(4, '0');
   });
   // restore original order (newest first) for storage
   list.sort((a, b) => {
@@ -1030,7 +1042,23 @@ function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer
 function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';prices=r.prices||[];pendingImages=r.photos||[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();renderResearchLinks();calculate()}}catch(e){}}
 
 function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0,5),description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
-function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=currentRecord();if(!r.articleNo)r.articleNo=nextArticleNo();document.getElementById('f-article-no').value=r.articleNo;if(!r.name&&!r.brand&&!r.category){document.getElementById('save-status').textContent='Bitte zuerst Artikeldaten eintragen.';return}currentItemId=r.id;const l=inventoryData(),i=l.findIndex(x=>x.id===r.id);if(i>=0)l[i]=r;else l.unshift(r);saveInventoryData(l);localStorage.removeItem('preis-check-draft');if(supabaseClient)syncAllToCloud();document.getElementById('save-status').textContent='Gespeichert.';renderStats()}
+function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=currentRecord();
+  // For new items (no currentItemId) or if the number looks like a placeholder, always get the next sequential number
+  const no = (r.articleNo || '').trim();
+  if (!currentItemId || !no || no.startsWith('000') || no === '0000') {
+    r.articleNo = nextArticleNo();
+  }
+  document.getElementById('f-article-no').value = r.articleNo;
+  if(!r.name&&!r.brand&&!r.category){document.getElementById('save-status').textContent='Bitte zuerst Artikeldaten eintragen.';return}
+  currentItemId=r.id;
+  const l=inventoryData(),i=l.findIndex(x=>x.id===r.id);
+  if(i>=0)l[i]=r;else l.unshift(r);
+  saveInventoryData(l);
+  localStorage.removeItem('preis-check-draft');
+  if(supabaseClient)syncAllToCloud();
+  document.getElementById('save-status').textContent='Gespeichert.';
+  renderStats();
+}
 function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos:[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();if(pendingImage){document.getElementById('preview-img').src=pendingImage;document.getElementById('preview-img').style.display='inline-block';document.getElementById('dropzone-hint').style.display='none'}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
 function deleteItem(id){createAutoBackup('Vor dem Löschen');saveInventoryData(inventoryData().filter(x=>x.id!==id));renderInventory();renderStats()}
 function renderInventory(){const e=document.getElementById('inventory-list'),all=inventoryData(),q=(document.getElementById('inventory-search')?.value||'').toLowerCase(),f=document.getElementById('inventory-filter')?.value||'',sort=document.getElementById('inventory-sort')?.value||'new';let l=all.filter(r=>(!q||[r.name,r.brand,r.category].join(' ').toLowerCase().includes(q))&&(!f||r.status===f));l.sort((a,b)=>sort==='name'?String(a.name||'').localeCompare(String(b.name||'')):sort==='profit'?((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0)):String(b.updated||'').localeCompare(String(a.updated||'')));if(!l.length){e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>';updateStorageInfo(all);return}e.innerHTML=l.map(r=>{const m=median(r.prices||[]),profit=(r.soldPrice||0)-(r.ek||0);const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';return `<div class="inventory-card">${img}<h3>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3><p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p><p>Status: <b>${escapeHtml(r.status||'geplant')}</b>${r.platform?' · '+escapeHtml(r.platform):''}</p><p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}<div class="inventory-actions"><button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button><button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button><button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button><button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button></div></div>`}).join('');updateStorageInfo(all)}
@@ -1056,7 +1084,7 @@ function generateInvoice(){saveInvoiceSettings();const id=document.getElementByI
 function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
 function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
 
-function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description'].forEach(id=>document.getElementById(id).value='');document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';document.getElementById('f-article-no').value=nextArticleNo();renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block'}
+function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description'].forEach(id=>document.getElementById(id).value='');document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';document.getElementById('f-article-no').value = nextArticleNo();renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block'}
 function learnedRange(brand,category,condition){const b=(brand||'').toLowerCase(),c=(category||'').toLowerCase(),co=(condition||'').toLowerCase();const list=loadCorrections().map(x=>{const ib=(x.brand||'').toLowerCase(),ic=(x.category||'').toLowerCase(),io=(x.condition||'').toLowerCase();let score=0;if(b&&ib===b)score+=5;else if(b&&ib.includes(b)||b&&ib&&b.includes(ib))score+=3;if(c&&ic===c)score+=5;else if(c&&ic.includes(c)||c&&ic&&c.includes(ic))score+=3;if(co&&io===co)score+=2;return {x,score}}).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score).slice(0,12);if(!list.length)return null;const weights=list.map(x=>x.score),sum=weights.reduce((a,v)=>a+v,0);return {low:list.reduce((a,v,i)=>a+v.x.low*weights[i],0)/sum,high:list.reduce((a,v,i)=>a+(v.x.high||v.x.low)*weights[i],0)/sum,count:list.length}}
 function renderLearningInsights(){const e=document.getElementById('learning-insights');if(!e)return;const l=loadCorrections(),values=l.flatMap(x=>[Number(x.low)||0,Number(x.high)||Number(x.low)||0]).filter(Boolean),brands=new Set(l.map(x=>x.brand).filter(Boolean)),cats=new Set(l.map(x=>x.category).filter(Boolean));e.innerHTML=`<div class="metric"><span class="muted">Preisreferenzen</span><strong>${l.length}</strong></div><div class="metric"><span class="muted">Marken gelernt</span><strong>${brands.size}</strong></div><div class="metric"><span class="muted">Kategorien gelernt</span><strong>${cats.size}</strong></div><div class="metric"><span class="muted">Durchschnittliche Range-Mitte</span><strong>${values.length?fmtEUR(values.reduce((a,v)=>a+v,0)/values.length):'–'}</strong></div>`}
 function localFallbackEstimate(){const r=learnedRange(document.getElementById('f-brand').value,document.getElementById('f-category').value,document.getElementById('f-condition').value);if(!r)return false;prices=prices.filter(p=>p.source!=='ai');prices.push({value:r.low,source:'ai'},{value:r.high,source:'ai'});renderPrices();calculate();return true}
@@ -1182,7 +1210,9 @@ renderStats();
 renderInvoiceItems();
 renderInvoiceHistory();
 restoreCloudSession();
-if(!document.getElementById('f-article-no').value)document.getElementById('f-article-no').value=nextArticleNo();
+if(!document.getElementById('f-article-no').value || document.getElementById('f-article-no').value.startsWith('000')) {
+  document.getElementById('f-article-no').value = nextArticleNo();
+}
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
 </script>
