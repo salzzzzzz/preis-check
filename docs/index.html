@@ -205,15 +205,6 @@
   .status-chip.active-verkauft { border-color:var(--success); color:var(--success-text); }
   .status-chip.active-archiviert { border-color:#8b5cf6; color:#c4b5fd; }
   .status-chip.active-nicht { border-color:var(--danger); color:#f0a8a0; }
-  .batch-bar {
-    display:none; position:sticky; top:0; z-index:20; margin-bottom:12px;
-    background:rgba(36,36,32,.97); border:1px solid var(--gold); border-radius:10px; padding:10px 12px;
-  }
-  .batch-bar.open { display:block; }
-  .batch-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
-  .batch-meta { font-size:12px; color:var(--ink-muted); }
-  .batch-meta b { color:var(--gold); }
-  .batch-actions { display:flex; gap:6px; flex-wrap:wrap; }
   .modal .grid-fields { margin-top:8px; }
 
   .step-progress {
@@ -342,21 +333,6 @@
     Preise trägst du selbst ein. So bleibt das Tool schnell nutzbar, ohne gegen die Regeln der Plattformen zu verstoßen.
   </div>
 
-  <div class="batch-bar" id="batch-bar">
-    <div class="batch-row">
-      <div class="batch-meta" id="batch-meta"><b>Batch-Modus</b> · bereit</div>
-      <div class="batch-actions">
-        <button class="primary" id="batch-next-btn" onclick="batchSaveAndNext()">💾 Speichern &amp; Nächster</button>
-        <button class="ghost" onclick="batchSkip()">Überspringen</button>
-        <button class="ghost" onclick="batchExit(false)">Batch beenden</button>
-      </div>
-    </div>
-    <div class="storage-bar" style="margin-top:8px;"><span id="batch-progress-bar" style="width:0%;background:var(--gold);transition:width .25s ease;"></span></div>
-    <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;">
-      Tipp: Foto prüfen → ⚡ Alles generieren → EK eintragen → <b style="color:var(--ink);">Speichern &amp; Nächster</b>.
-    </div>
-  </div>
-
   <div class="panel" id="step-panel-1" data-step-panel="1">
     <h2>1 · Artikel erkennen</h2>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
@@ -367,10 +343,8 @@
     <div class="photo-actions">
       <button class="ghost" type="button" onclick="event.stopPropagation(); document.getElementById('file-input-add').click()">＋ Weitere Fotos</button>
       <button class="ghost" type="button" onclick="clearAllPhotos()">Alle Fotos löschen</button>
-      <button class="primary" type="button" onclick="event.stopPropagation(); document.getElementById('batch-file-input').click()">📦 Batch-Stapel starten</button>
       <span class="analyze-status" id="photo-count-status">0/8 Fotos</span>
       <input type="file" id="file-input-add" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files, true)" />
-      <input type="file" id="batch-file-input" accept="image/*" multiple style="display:none" onchange="startBatchFromFiles(this.files)" />
     </div>
     <div id="photo-strip" class="photo-strip"></div>
     <div class="analyze-row" style="flex-wrap:wrap;margin-top:10px;">
@@ -401,7 +375,7 @@
     <div class="grid-fields">
       <div>
         <label class="field-label">Artikel</label>
-        <input id="f-name" placeholder="Ralph Lauren Sweater" oninput="renderResearchLinks()" />
+        <input id="f-name" placeholder="z.B. Ralph Lauren Sweater gestreift" oninput="renderResearchLinks()" />
       </div>
       <div>
         <label class="field-label">Marke</label>
@@ -761,10 +735,6 @@ let pendingImage = null;
 let pendingImages = [];
 let currentItemId = null;
 let soldModalItemId = null;
-let batchQueue = []; // Array of photo arrays (each item = 1+ photos)
-let batchIndex = 0;
-let batchActive = false;
-let batchAutoGenerate = true;
 let libraryImage = null;
 let prices = [];
 
@@ -1944,39 +1914,41 @@ function buildPhotoAnalyzePrompt(simple = false) {
       }).join('; ') + '.'
     : '';
 
+  const nameRules =
+    'KRITISCH für name: NIEMALS generische Wörter wie "Kleidungsstück", "Artikel", "Item", "Clothing", "Garment", "Piece", "Produkt". ' +
+    'name MUSS konkret und suchbar sein, Format ideal: "[Marke] [Modell/Typ] [Muster/Details]", z.B. "Ralph Lauren Sweater gestreift", "Fred Perry Polo Shirt", "Nike Hoodie Vintage". ' +
+    'category ist der Kleidungstyp (Sweater, Polo, Hoodie, Jacke, Jeans, Crewneck, Quarter Zip, T-Shirt, Cardigan, Hemd, Hose, Rock, Kleid). ' +
+    'pattern_or_details: z.B. gestreift, kariert, Logo-Stick, Twin Tip, Halfzip – nur wenn sichtbar. ';
+
   if (simple) {
-    return 'Analysiere dieses Kleidungsstück auf den ' + photoCount + ' Foto(s). ' +
-      'Antworte AUSSCHLIESSLICH mit einem JSON-Objekt und genau diesen Keys: ' +
-      '{"name":"","brand":"","category":"","color":"","condition":"","size":"","chest_cm":null,"length_cm":null,"shoulder_cm":null,"sleeve_cm":null,"measurements_note":"","price_low":0,"price_high":0}. ' +
-      'name/brand/category/color auf Deutsch soweit möglich. condition nur: Zufriedenstellend|Gut|Sehr Gut|Neu|Neu mit Etikett. ' +
-      'size nur wenn Etikett lesbar. cm-Felder nur wenn Maßband/Maße sichtbar, sonst null. Preise als Zahlen in Euro. Kein Markdown.';
+    return 'Analysiere das Kleidungsstück auf den ' + photoCount + ' Foto(s) genau. ' +
+      'Lies Markenlogos/Etiketten und bestimme den konkreten Typ. ' + nameRules +
+      'Antworte AUSSCHLIESSLICH als JSON mit Keys: ' +
+      '{"name":"","brand":"","category":"","pattern_or_details":"","color":"","condition":"","size":"","chest_cm":null,"length_cm":null,"shoulder_cm":null,"sleeve_cm":null,"material":"","fit":"","gender":"","measurements_note":"","price_low":0,"price_high":0}. ' +
+      'name = Marke + konkreter Typ + optionales Muster (NIE nur Kleidungsstück). ' +
+      'condition nur: Zufriedenstellend|Gut|Sehr Gut|Neu|Neu mit Etikett. ' +
+      'size nur wenn Etikett lesbar. cm-Felder nur wenn Maßband/Maße sichtbar, sonst null. Preise in Euro als Zahlen. Kein Markdown.';
   }
 
-  return 'Du siehst ' + photoCount + ' Foto(s) desselben Kleidungsstücks für einen deutschen Wiederverkauf-Shop (Vinted/eBay). ' +
-    'Nutze ALLE Bilder gemeinsam (Etikett, Vorderseite, Rückseite, Detail, Maßband falls vorhanden). ' +
+  return 'Du analysierst ' + photoCount + ' Foto(s) desselben Secondhand-Kleidungsstücks für Vinted/eBay DE. ' +
+    'Nutze ALLE Bilder (Etikett, Logo, Vorderseite, Rückseite, Details, Maßband). ' +
+    'Erkenne Marke am Logo/Etikett so genau wie möglich (z.B. Ralph Lauren, Fred Perry, Nike, Adidas, Tommy Hilfiger, Lacoste, Carhartt, The North Face). ' +
     (condition ? ('Zustand laut Nutzer: ' + condition + '. ') : '') +
     (defects ? ('Zusätzliche Mängel-/Zustandsinfos: ' + defects + '. ') : '') +
-    refsText + ' ' +
+    refsText + ' ' + nameRules +
     'Antworte NUR mit einem JSON-Objekt (kein Fließtext, keine Code-Fences, kein Thinking) mit den Feldern: ' +
-    'name (kurzer, suchmaschinentauglicher Produktname inkl. Marke), ' +
-    'brand (vermutete Marke, leer wenn unklar), ' +
-    'category (z.B. Sweater, Jacke, Hoodie, Jeans, Polo, Crewneck), ' +
-    'color (Hauptfarbe auf Deutsch, leer wenn unklar), ' +
-    'condition (falls vom Nutzer nicht vorgegeben: geschätzter Zustand, GENAU einer dieser Werte: "Zufriedenstellend", "Gut", "Sehr Gut", "Neu", "Neu mit Etikett"), ' +
-    'size (Größe vom Etikett/Tag falls lesbar, z.B. "S", "M", "L", "48", "M/L"; sonst leerer String), ' +
-    'chest_cm (Achsel zu Achsel / halbe Brustweite in cm als Zahl, NUR wenn auf Fotos/Maßband erkennbar oder sehr sicher ablesbar, sonst null), ' +
-    'length_cm (Gesamtlänge in cm als Zahl, nur wenn erkennbar, sonst null), ' +
-    'shoulder_cm (Schulterbreite in cm als Zahl, nur wenn erkennbar, sonst null), ' +
-    'sleeve_cm (Ärmellänge in cm als Zahl, nur wenn erkennbar, sonst null), ' +
-    'material (Stoff/Material vom Etikett falls lesbar, sonst leerer String), ' +
-    'fit (Passform falls erkennbar: Regular/Slim/Oversized/Relaxed, sonst leer), ' +
-    'gender (Herren/Damen/Unisex/Kids falls erkennbar, sonst leer), ' +
-    'measurements_note (kurz auf Deutsch: woher die Maße kommen, z.B. "Etikett lesbar" / "Maßband im Bild" / "nicht erkennbar"), ' +
-    'price_low (geschätzter unterer Wiederverkaufspreis in Euro als Zahl), ' +
-    'price_high (geschätzter oberer Wiederverkaufspreis in Euro als Zahl). ' +
-    'WICHTIG: name ODER brand ODER category muss ausgefüllt sein, wenn ein Kleidungsstück sichtbar ist. ' +
-    'Maße und Größe NIEMALS erfinden. Wenn unsicher oder nicht sichtbar: size="", cm-Felder=null. ' +
-    'Keine erfundenen exakten Details.';
+    'name (konkreter Produktname inkl. Marke und Typ, z.B. "Ralph Lauren Sweater gestreift" – NIE "Kleidungsstück"), ' +
+    'brand (erkannte Marke, leer nur wenn wirklich unklar), ' +
+    'category (konkreter Typ: Sweater, Polo, Hoodie, Jacke, Jeans, Crewneck, Quarter Zip, T-Shirt, Cardigan, Hemd, Hose, Rock, Kleid – NIE "Kleidungsstück"), ' +
+    'pattern_or_details (Muster/Details falls sichtbar: gestreift, kariert, Logo, Stick, Twin Tip, Halfzip, leer sonst), ' +
+    'color (Hauptfarbe auf Deutsch), ' +
+    'condition (falls vom Nutzer nicht vorgegeben: GENAU einer von "Zufriedenstellend", "Gut", "Sehr Gut", "Neu", "Neu mit Etikett"), ' +
+    'size (Größe vom Etikett falls lesbar, sonst ""), ' +
+    'chest_cm, length_cm, shoulder_cm, sleeve_cm (Zahlen in cm nur wenn sichtbar/maßband, sonst null), ' +
+    'material, fit, gender (nur wenn erkennbar, sonst ""), ' +
+    'measurements_note (kurz woher Maße/Größe), ' +
+    'price_low, price_high (Euro-Zahlen für DE-Wiederverkauf). ' +
+    'Wenn Marke ODER Typ erkennbar ist, name und category MÜSSEN konkret sein. Maße/Größe nie erfinden.';
 }
 
 function pickFirstString(...vals) {
@@ -1988,6 +1960,58 @@ function pickFirstString(...vals) {
   return '';
 }
 
+function isGenericItemName(s) {
+  const t = String(s || '').trim().toLowerCase();
+  if (!t) return true;
+  return /^(kleidungs[-\s]?stück|kleidung|artikel|item|clothing|garment|piece|produkt|ware|textil|bekleidung|clothes|apparel|unknown|unbekannt)s?$/i.test(t)
+    || /^(ein |das |the )?(kleidungsstück|artikel|item)$/i.test(t);
+}
+
+function isGenericCategory(s) {
+  const t = String(s || '').trim().toLowerCase();
+  if (!t) return true;
+  return isGenericItemName(t) || /^(mode|fashion|style|outfit)$/i.test(t);
+}
+
+function buildSmartItemName(brand, category, pattern, rawName) {
+  const b = String(brand || '').trim();
+  let c = String(category || '').trim();
+  const p = String(pattern || '').trim();
+  let n = String(rawName || '').trim();
+
+  // generische Namen verwerfen
+  if (isGenericItemName(n)) n = '';
+  if (isGenericCategory(c)) c = '';
+
+  // wenn raw name schon gut ist und Marke enthält: behalten, aber generische Reste entfernen
+  if (n) {
+    n = n.replace(/\b(kleidungsstück|kleidung|artikel|item|clothing|garment)\b/gi, '').replace(/\s+/g, ' ').trim();
+  }
+
+  // Name aus Marke + Kategorie + Muster bauen, wenn raw unbrauchbar
+  if (!n || isGenericItemName(n) || (b && n.toLowerCase() === b.toLowerCase())) {
+    const parts = [];
+    if (b) parts.push(b);
+    if (c && (!b || !c.toLowerCase().includes(b.toLowerCase()))) parts.push(c);
+    else if (c) parts.push(c);
+    if (p && !parts.join(' ').toLowerCase().includes(p.toLowerCase())) parts.push(p);
+    n = parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  } else {
+    // Marke voranstellen, falls fehlt
+    if (b && !n.toLowerCase().includes(b.toLowerCase())) n = (b + ' ' + n).trim();
+    // Muster anhängen, falls sinnvoll und noch nicht drin
+    if (p && p.length <= 24 && !n.toLowerCase().includes(p.toLowerCase())) {
+      n = (n + ' ' + p).trim();
+    }
+  }
+
+  // letzte Absicherung
+  if (!n || isGenericItemName(n)) {
+    n = [b, c || 'Sweater'].filter(Boolean).join(' ') || 'Marken Sweater';
+  }
+  return n.replace(/\s+/g, ' ').trim();
+}
+
 function applyPhotoAnalysis(parsed) {
   parsed = parsed || {};
   // verschachtelte Antworten abfangen
@@ -1996,18 +2020,53 @@ function applyPhotoAnalysis(parsed) {
   if (parsed.item && typeof parsed.item === 'object') parsed = { ...parsed, ...parsed.item };
 
   const condition = document.getElementById('f-condition').value;
-  const name = pickFirstString(parsed.name, parsed.product_name, parsed.title, parsed.article);
-  const brand = pickFirstString(parsed.brand, parsed.marque, parsed.manufacturer);
-  const category = pickFirstString(parsed.category, parsed.type, parsed.garment, parsed.item_type);
-  const color = pickFirstString(parsed.color, parsed.colour, parsed.farbe);
+  let brand = pickFirstString(parsed.brand, parsed.marque, parsed.manufacturer, parsed.make);
+  let category = pickFirstString(parsed.category, parsed.type, parsed.garment, parsed.item_type, parsed.product_type, parsed.subcategory);
+  let pattern = pickFirstString(parsed.pattern_or_details, parsed.pattern, parsed.details, parsed.style_details, parsed.print, parsed.motif);
+  let rawName = pickFirstString(parsed.name, parsed.product_name, parsed.title, parsed.article, parsed.product);
 
-  if (name) document.getElementById('f-name').value = name;
-  if (brand) document.getElementById('f-brand').value = brand;
-  if (category) document.getElementById('f-category').value = category;
-  // Falls nur Marke erkannt: Name sinnvoll ergänzen
-  if (!document.getElementById('f-name').value.trim() && (brand || category)) {
-    document.getElementById('f-name').value = [brand, category].filter(Boolean).join(' ');
+  // generische category aus raw name ziehen, falls category leer/generic
+  if (isGenericCategory(category) && rawName && !isGenericItemName(rawName)) {
+    // z.B. "Ralph Lauren Sweater gestreift" -> category Sweater gestreift ohne Marke
+    let maybe = rawName;
+    if (brand && maybe.toLowerCase().startsWith(brand.toLowerCase())) {
+      maybe = maybe.slice(brand.length).trim();
+    }
+    if (maybe && !isGenericItemName(maybe)) category = maybe;
   }
+
+  const name = buildSmartItemName(brand, category, pattern, rawName);
+  // category sauber halten: eher Kurztyp
+  if (isGenericCategory(category) && name) {
+    let c2 = name;
+    if (brand && c2.toLowerCase().startsWith(brand.toLowerCase())) c2 = c2.slice(brand.length).trim();
+    // nimm erstes 1-3 Wörter als category-ish
+    category = c2.split(/\s+/).slice(0, 3).join(' ') || category;
+  }
+  if (isGenericCategory(category)) category = '';
+
+  const color = pickFirstString(parsed.color, parsed.colour, parsed.farbe, parsed.main_color);
+
+  // Felder setzen – generische Werte nie übernehmen
+  if (brand) document.getElementById('f-brand').value = brand;
+  if (category && !isGenericCategory(category)) document.getElementById('f-category').value = category;
+
+  // Artikelname: immer smart bauen / generisches "Kleidungsstück" überschreiben
+  const bNow = document.getElementById('f-brand').value.trim() || brand;
+  const cNow = document.getElementById('f-category').value.trim() || category;
+  const smart = buildSmartItemName(bNow, cNow, pattern, name);
+  const prevName = document.getElementById('f-name').value.trim();
+  if (!prevName || isGenericItemName(prevName) || (smart && !isGenericItemName(smart))) {
+    // Nur überschreiben wenn bisher leer/generisch ODER smart konkreter ist
+    if (!prevName || isGenericItemName(prevName) || (smart.length > prevName.length && !isGenericItemName(smart))) {
+      document.getElementById('f-name').value = smart;
+    }
+  }
+  // absolute Notbremse
+  if (isGenericItemName(document.getElementById('f-name').value)) {
+    document.getElementById('f-name').value = buildSmartItemName(bNow, cNow || 'Sweater', pattern, '');
+  }
+
   if (color && document.getElementById('f-color') && !document.getElementById('f-color').value) {
     document.getElementById('f-color').value = color;
   }
@@ -2446,8 +2505,6 @@ function saveCurrentItem(options = {}) {
 function loadItem(id) {
   const r = inventoryData().find(x => x.id === id);
   if (!r) return;
-  // Einzelbearbeitung: Batch pausieren, damit nichts überschrieben wird
-  if (batchActive) batchExit(true);
   currentItemId = id;
   document.getElementById('f-name').value = r.name || '';
   document.getElementById('f-brand').value = r.brand || '';
@@ -2659,163 +2716,7 @@ function archiveItem(id) {
   quickSetStatus(id, 'archiviert');
 }
 
-/* ===================== Batch-Modus ===================== */
-function updateBatchUi() {
-  const bar = document.getElementById('batch-bar');
-  const meta = document.getElementById('batch-meta');
-  const prog = document.getElementById('batch-progress-bar');
-  const nextBtn = document.getElementById('batch-next-btn');
-  if (!bar) return;
-  if (!batchActive || !batchQueue.length) {
-    bar.classList.remove('open');
-    return;
-  }
-  bar.classList.add('open');
-  const total = batchQueue.length;
-  const cur = Math.min(batchIndex + 1, total);
-  const pct = Math.round((batchIndex / total) * 100);
-  if (meta) {
-    meta.innerHTML = `<b>Batch-Modus</b> · Artikel <b>${cur}</b> / <b>${total}</b>` +
-      (batchIndex < total ? ` · noch ${total - batchIndex} offen` : ' · fertig');
-  }
-  if (prog) prog.style.width = Math.min(100, pct) + '%';
-  if (nextBtn) nextBtn.textContent = batchIndex >= total - 1 ? '💾 Speichern & Batch beenden' : '💾 Speichern & Nächster';
-}
-
-function clearFormForBatch() {
-  currentItemId = null;
-  prices = [];
-  ['f-name','f-brand','f-category','f-defects','f-color','f-era','f-material','f-fit','f-gender','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title','f-notes'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) el.value = '';
-  });
-  document.getElementById('f-condition').value = '';
-  document.getElementById('f-platform').value = '';
-  document.getElementById('f-status').value = 'geplant';
-  document.getElementById('f-article-no').value = nextArticleNo();
-  const ts = document.getElementById('title-status'); if (ts) ts.textContent = '';
-  const ds = document.getElementById('desc-status'); if (ds) ds.textContent = '';
-  const as = document.getElementById('analyze-status'); if (as) as.textContent = '';
-  const ms = document.getElementById('measures-ai-status'); if (ms) { ms.textContent = ''; ms.style.color = ''; }
-  const ss = document.getElementById('save-status'); if (ss) ss.textContent = '';
-  const tv = document.getElementById('title-variants'); if (tv) { tv.style.display = 'none'; tv.innerHTML = ''; }
-  updateTitleCharCount();
-  renderPrices();
-  renderResearchLinks();
-  calculate();
-  updateStepProgress();
-}
-
-async function loadBatchItem(index) {
-  if (index < 0 || index >= batchQueue.length) {
-    batchExit(false);
-    return;
-  }
-  batchIndex = index;
-  clearFormForBatch();
-  pendingImages = (batchQueue[index] || []).slice(0, MAX_PHOTOS);
-  pendingImage = pendingImages[0] || null;
-  syncPhotoUi();
-  updateBatchUi();
-  switchView('check', document.querySelector('.nav-btn[data-view="check"]'));
-  const as = document.getElementById('analyze-status');
-  if (as) as.textContent = `Batch ${batchIndex + 1}/${batchQueue.length} geladen` + (batchAutoGenerate ? ' · starte Auto-Generierung…' : '');
-  if (batchAutoGenerate && pendingImages.length && getApiKey()) {
-    try {
-      await generateAllListing();
-    } catch (e) {
-      if (as) as.textContent = 'Auto-Generierung fehlgeschlagen: ' + (e.message || 'unbekannt');
-    }
-  } else if (batchAutoGenerate && !getApiKey()) {
-    openSettings();
-  }
-}
-
-async function startBatchFromFiles(fileList) {
-  const files = Array.from(fileList || []).filter(f => f && String(f.type || '').startsWith('image/'));
-  const input = document.getElementById('batch-file-input');
-  if (input) input.value = '';
-  if (!files.length) {
-    alert('Keine Bilder ausgewählt.');
-    return;
-  }
-  // Jede Datei = ein Artikel (typischer Wochenend-Stapel). Mehrere Fotos pro Artikel: im Einzelmodus anhängen.
-  const queue = [];
-  for (const file of files.slice(0, 40)) {
-    try {
-      const dataUrl = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
-      const resized = await resizeImage(dataUrl, 900, 0.8);
-      queue.push([resized]);
-    } catch (e) {
-      console.warn('Batch-Foto übersprungen', e);
-    }
-  }
-  if (!queue.length) {
-    alert('Fotos konnten nicht geladen werden.');
-    return;
-  }
-  batchQueue = queue;
-  batchIndex = 0;
-  batchActive = true;
-  batchAutoGenerate = true;
-  updateBatchUi();
-  await loadBatchItem(0);
-}
-
-function batchExit(silent = false) {
-  const had = batchActive;
-  batchActive = false;
-  batchQueue = [];
-  batchIndex = 0;
-  updateBatchUi();
-  if (!silent && had) {
-    const as = document.getElementById('analyze-status');
-    if (as) as.textContent = 'Batch beendet.';
-  }
-}
-
-function batchSkip() {
-  if (!batchActive) return;
-  if (batchIndex >= batchQueue.length - 1) {
-    batchExit(false);
-    alert('Batch fertig – letzter Artikel übersprungen.');
-    return;
-  }
-  loadBatchItem(batchIndex + 1);
-}
-
-async function batchSaveAndNext() {
-  if (!batchActive) {
-    saveCurrentItem();
-    return;
-  }
-  // Standard: als „geplant“ speichern, falls noch kein Status gesetzt
-  if (!document.getElementById('f-status').value) {
-    document.getElementById('f-status').value = 'geplant';
-  }
-  const ok = saveCurrentItem({ quiet: true });
-  if (!ok) return;
-
-  if (batchIndex >= batchQueue.length - 1) {
-    batchExit(false);
-    const as = document.getElementById('analyze-status');
-    if (as) as.textContent = '✅ Batch abgeschlossen. Alle Artikel gespeichert.';
-    // Inventar zeigen
-    switchView('inventory', document.querySelector('.nav-btn[data-view="inventory"]'));
-    renderInventory();
-    return;
-  }
-  await loadBatchItem(batchIndex + 1);
-}
-
 function newItem() {
-  if (batchActive && !confirm('Batch läuft noch. Wirklich neuen leeren Artikel starten und Batch beenden?')) return;
-  if (batchActive) batchExit(true);
   currentItemId = null;
   prices = [];
   pendingImages = [];
@@ -3313,20 +3214,16 @@ document.addEventListener('keydown', (e) => {
   if (typing && !e.ctrlKey && !e.metaKey) return;
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
     e.preventDefault();
-    if (batchActive) batchSaveAndNext(); else saveCurrentItem();
+    saveCurrentItem();
   }
   if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
     e.preventDefault();
     if (!document.getElementById('all-generate-btn')?.disabled) generateAllListing();
-  }
-  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter' && batchActive) {
-    e.preventDefault();
-    batchSaveAndNext();
   }
 });
 
 updateStepProgress();
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbdc707febefb7',t:'MTc4NDQ4NjQ5NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbe05cb806efb7',t:'MTc4NDQ4NjY1NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
