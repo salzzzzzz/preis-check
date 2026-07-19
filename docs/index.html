@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Preis-Check · Build 2026.07.19c</title>
+<title>Preis-Check · Build 2026.07.19e</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
 
@@ -335,17 +335,42 @@
     .recent-chip { max-width:46%; flex:1; min-height:40px; }
   }
 
+
+  .quick-verdict { border-radius:12px; padding:22px; text-align:center; margin-top:12px; }
+  .quick-verdict.yes { background:rgba(126,163,107,.14); border:1px solid var(--success); }
+  .quick-verdict.no { background:rgba(192,87,74,.14); border:1px solid var(--danger); }
+  .quick-verdict.maybe { background:rgba(217,164,65,.14); border:1px solid var(--gold); }
+  .quick-verdict .qv-big { font-family:'Archivo Black',sans-serif; font-size:28px; margin-bottom:6px; }
+  .label-sheet { background:#fff; color:#111; padding:16px; border-radius:6px; font-family:Arial,sans-serif; }
+  .label-sheet .sku { font-size:22px; font-weight:bold; letter-spacing:.04em; }
+  .fee-presets { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0; }
+  .fee-presets button.active { border-color:var(--gold); color:var(--gold); }
+  .next-list { display:grid; gap:8px; margin-top:8px; }
+  .next-card { border:1px solid var(--card-border); border-radius:8px; padding:10px; background:#161613; display:flex; justify-content:space-between; gap:8px; align-items:center; }
+  .ampel { display:inline-block; width:12px; height:12px; border-radius:50%; margin-right:6px; vertical-align:middle; }
+  .ampel.green { background:var(--success); } .ampel.yellow { background:var(--gold); } .ampel.red { background:var(--danger); }
+  .brand-fix { margin-top:8px; display:none; gap:8px; flex-wrap:wrap; align-items:end; }
+  .brand-fix.open { display:flex; }
+  .print-area { display:none; }
+  @media print {
+    body * { visibility:hidden !important; }
+    .print-area, .print-area * { visibility:visible !important; }
+    .print-area { display:block !important; position:absolute; left:0; top:0; width:100%; }
+  }
+
 </style>
 </head>
 <body>
 <div class="sidebar">
   <div class="sidebar-title">Preis-Check</div>
-  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19c</div>
+  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19e</div>
   <button class="nav-btn active" data-view="check" onclick="switchView('check',this)">🧮 Preis-Check</button>
+  <button class="nav-btn" data-view="quick" onclick="switchView('quick',this)">⚡ Schnellcheck</button>
   <button class="nav-btn" data-view="cloud" onclick="switchView('cloud',this)">☁️ Cloud-Sync</button>
   <button class="nav-btn" data-view="privacy" onclick="switchView('privacy',this)">🔒 Datenschutz</button>
   <button class="nav-btn" data-view="inventory" onclick="switchView('inventory',this)">📦 Inventar</button>
   <button class="nav-btn" data-view="invoices" onclick="switchView('invoices',this)">🧾 Rechnungen</button>
+  <button class="nav-btn" data-view="labels" onclick="switchView('labels',this)">🏷️ Etiketten</button>
   <button class="nav-btn" data-view="library" onclick="switchView('library',this)">📚 Marken &amp; Artikel</button>
   <button class="nav-btn" data-view="stats" onclick="switchView('stats',this)">📊 Statistiken</button>
   <button class="nav-btn" onclick="openSettings()">⚙️ Gemini API-Key</button>
@@ -563,7 +588,8 @@
     </div>
 
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
-      <button class="ghost" onclick="generateDescription()" id="desc-btn">Beschreibung generieren</button>
+      <button class="ghost" onclick="generateDescription()" id="desc-btn">Beschreibung DE</button>
+      <button class="ghost" onclick="generateDescriptionEn()" id="desc-en-btn">Listing EN</button>
       <button class="primary" onclick="copyAllListing()">Alles kopieren</button>
       <span class="analyze-status" id="desc-status"></span>
     </div>
@@ -765,6 +791,66 @@
     <div id="learning-insights" class="metric-grid" style="margin-top:16px;"></div><div id="correction-library-slot" style="margin-top:16px;"></div></div>
 </div>
 
+
+<!-- Kauf-Schnellcheck -->
+<div id="quick-view" class="view hidden">
+  <div class="top-row"><h1>Kauf-Schnellcheck</h1><span class="muted" style="font-size:12px;">Foto → Preis → Max-EK → Ja/Nein</span></div>
+  <hr class="divider" />
+  <div class="warn-box"><b>Unterwegs-Modus:</b> Kein Titel/Beschreibung. Nur Kaufentscheidung anhand Marktpreis und Zielmarge.</div>
+  <div class="panel">
+    <h2>Foto</h2>
+    <div class="dropzone" id="quick-dropzone" onclick="document.getElementById('quick-file').click()">
+      <img id="quick-preview" style="display:none;max-height:160px;border-radius:8px;" />
+      <div class="hint" id="quick-hint">Foto tippen / wählen</div>
+      <input type="file" id="quick-file" accept="image/*" capture="environment" style="display:none" onchange="handleQuickFile(this.files[0])" />
+    </div>
+    <div class="grid-fields" style="margin-top:10px;">
+      <div><label class="field-label">Ziel-Marge %</label><input id="quick-margin" type="number" min="0" max="200" step="5" value="50" oninput="calcQuick()" /></div>
+      <div><label class="field-label">Plattform</label>
+        <select id="quick-platform" onchange="applyFeePreset(this.value); calcQuick();">
+          <option value="Vinted">Vinted</option>
+          <option value="eBay">eBay</option>
+          <option value="Kleinanzeigen">Kleinanzeigen</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+      </div>
+      <div><label class="field-label">Gebühren %</label><input id="quick-fee-pct" type="number" min="0" step="0.1" value="5" oninput="calcQuick()" /></div>
+      <div><label class="field-label">Fixkosten €</label><input id="quick-fee-fixed" type="number" min="0" step="0.01" value="0" oninput="calcQuick()" /></div>
+      <div><label class="field-label">Dein EK-Angebot €</label><input id="quick-ek" type="number" min="0" step="0.01" placeholder="z.B. 18" oninput="calcQuick()" /></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+      <button class="primary" id="quick-analyze-btn" onclick="runQuickCheck()" disabled>⚡ Analysieren</button>
+      <button class="ghost" onclick="clearQuick()">Zurücksetzen</button>
+      <button class="ghost" onclick="sendQuickToFull()">→ In Preis-Check öffnen</button>
+    </div>
+    <div id="quick-status" class="analyze-status" style="margin-top:8px;"></div>
+    <div class="stat-line" style="margin-top:12px;"><span class="label">Erkannt</span><span class="value" id="quick-item">–</span></div>
+    <div class="stat-line"><span class="label">Marktpreis (Median)</span><span class="value" id="quick-market">–</span></div>
+    <div class="stat-line"><span class="label">Max. EK (Zielmarge netto)</span><span class="value" id="quick-maxek">–</span></div>
+    <div class="stat-line"><span class="label">Erwartete Netto-Marge</span><span class="value" id="quick-profit">–</span></div>
+    <div class="quick-verdict maybe" id="quick-verdict"><div class="qv-big">Bereit</div><div>Foto analysieren und optional EK eintragen.</div></div>
+  </div>
+</div>
+
+<!-- Etiketten / SKU -->
+<div id="labels-view" class="view hidden">
+  <div class="top-row"><h1>Etiketten / SKU</h1><span class="muted" style="font-size:12px;">Barcode-ähnlich + Artikelnummer</span></div>
+  <hr class="divider" />
+  <div class="panel">
+    <h2>Etikett drucken</h2>
+    <div class="grid-fields">
+      <div><label class="field-label">Inventar-Artikel</label><select id="label-item" onchange="renderLabelPreview()"></select></div>
+      <div><label class="field-label">Karton / Standort</label><input id="label-location" placeholder="z.B. Karton 3" oninput="renderLabelPreview()" /></div>
+      <div><label class="field-label">Stückzahl Etiketten</label><input id="label-count" type="number" min="1" max="20" value="1" /></div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+      <button class="primary" onclick="printLabels()">🖨️ Etiketten drucken</button>
+      <button class="ghost" onclick="renderLabelPreview()">Vorschau aktualisieren</button>
+    </div>
+    <div id="label-preview" style="margin-top:14px;"></div>
+  </div>
+</div>
+
 <!-- Statistiken -->
 <div id="stats-view" class="view hidden">
   <div class="top-row"><h1>Statistiken</h1></div><hr class="divider" />
@@ -835,7 +921,7 @@ const CORRECTIONS_KEY = 'preis-check-corrections';
 const STYLE_KEY = 'preis-check-style-template';
 const INVENTORY_KEY = 'preis-check-inventory';
 const BACKUPS_KEY = 'preis-check-backups';
-const APP_BUILD = '2026.07.19c';
+const APP_BUILD = '2026.07.19e';
 const RECENT_KEY = 'preis-check-recent';
 const LEARN_KEY = 'preis-check-name-learn';
 const TITLE_LANG_KEY = 'preis-check-title-lang';
@@ -2036,6 +2122,52 @@ const KNOWN_BRANDS = [
   'Carhartt WIP','Dickies','Dickies Workwear','Wrangler','Lee Cooper','Pepe','Hilfiger Denim','RL','POLO'
 ];
 
+
+function isGenericItemName(s) {
+  const t = String(s || '').trim().toLowerCase();
+  if (!t) return true;
+  return /^(kleidungs[-\s]?stück|kleidung|artikel|item|clothing|garment|piece|produkt|ware|textil|bekleidung|clothes|apparel|unknown|unbekannt|mode|fashion)s?$/i.test(t)
+    || /^(ein |das |the )?(kleidungsstück|artikel|item)$/i.test(t);
+}
+function isGenericCategory(s) {
+  const t = String(s || '').trim().toLowerCase();
+  if (!t) return true;
+  return isGenericItemName(t) || /^(mode|fashion|style|outfit|bekleidung)$/i.test(t);
+}
+function buildSmartItemName(brand, category, pattern, rawName) {
+  const b = String(brand || '').trim();
+  let c = String(category || '').trim();
+  const p = String(pattern || '').trim();
+  let n = String(rawName || '').trim();
+
+  if (isGenericItemName(n)) n = '';
+  if (isGenericCategory(c)) c = '';
+
+  if (n) {
+    n = n.replace(/\b(kleidungsstück|kleidung|artikel|item|clothing|garment)\b/gi, '').replace(/\s+/g, ' ').trim();
+  }
+  // Kategorie/Name ohne doppelte Marke
+  if (b && c && c.toLowerCase().startsWith(b.toLowerCase())) c = c.slice(b.length).trim() || c;
+  if (b && n && n.toLowerCase().startsWith(b.toLowerCase())) n = n.slice(b.length).trim();
+  if (isGenericItemName(n)) n = '';
+
+  let core = n || c || '';
+  if (!core || isGenericItemName(core)) core = c || 'Sweater';
+
+  const parts = [];
+  if (b) parts.push(b);
+  if (core && (!b || core.toLowerCase() !== b.toLowerCase())) parts.push(core);
+  if (p && p.length <= 28 && !parts.join(' ').toLowerCase().includes(p.toLowerCase())) parts.push(p);
+
+  let out = parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+  // Marke MUSS im Artikelnamen stehen
+  if (b && out && !out.toLowerCase().includes(b.toLowerCase())) out = (b + ' ' + out).trim();
+  if (!out || isGenericItemName(out)) out = [b, c || 'Sweater'].filter(Boolean).join(' ') || 'Marken Sweater';
+  // "Ralph Lauren Sweater" nicht zu "Sweater" verkommen lassen
+  if (b && out.toLowerCase() === (c || '').toLowerCase()) out = (b + ' ' + out).trim();
+  return out.replace(/\s+/g, ' ').trim();
+}
+
 function normalizeBrandName(s) {
   const t = String(s || '').trim();
   if (!t) return '';
@@ -2068,7 +2200,7 @@ function buildPhotoAnalyzePrompt(mode = 'full') {
     return 'Du bekommst ' + photoCount + ' nummerierte Fotos (FOTO 1, FOTO 2, …) DESSELBEN Kleidungsstücks. ' +
       'AUFGABE: Durchsuche JEDES Foto nach Markenlogos, gestickten Logos, Print-Logos, Hals-Etiketten, Pflegeetiketten, Hangtags. ' +
       'Lies sichtbaren Text (OCR). Bestimme die Marke so genau wie möglich. ' +
-      'Häufige Marken: Ralph Lauren, Polo Ralph Lauren, Fred Perry, Nike, Adidas, Tommy Hilfiger, Lacoste, Carhartt, The North Face, Levi\'s, Calvin Klein, Hugo Boss, Gant, Stone Island, CP Company, Champion, Vans, New Balance, Puma, Barbour, Lyle & Scott, u.a. ' +
+      'Häufige Marken/Logos: Ralph Lauren (Polospieler-Logo / POLO), Polo Ralph Lauren, Fred Perry (Lorbeerkranz), Nike (Swoosh), Adidas (3 Streifen), Tommy Hilfiger (Flag), Lacoste (Krokodil), Carhartt, The North Face, Levi\'s, Calvin Klein, Hugo Boss, Gant, Stone Island, Champion, Vans, New Balance, Puma, Barbour, Lyle & Scott. ' +'Wenn du einen Polospieler/Pferd mit Reiter auf der Brust siehst = Ralph Lauren / Polo Ralph Lauren. ' +
       'Antworte NUR als JSON ohne Markdown: ' +
       '{"brand":"","brand_confidence":0.0,"brand_evidence":"","logo_found":false,"label_text":"","category_guess":"","name_guess":"","color_guess":"","photos_used":[]} ' +
       'Regeln: brand leer lassen wenn wirklich unklar (nicht raten). brand_confidence 0-1. ' +
@@ -2085,7 +2217,7 @@ function buildPhotoAnalyzePrompt(mode = 'full') {
     (defects ? ('Mängel-Hinweis: ' + defects + '. ') : '') +
     refsText + ' ' +
     'Antworte NUR als JSON ohne Markdown mit exakt diesen Feldern: ' +
-    '{"brand":"","brand_confidence":0.0,"brand_evidence":"","name":"","category":"","pattern_or_details":"","color":"","condition":"","size":"","chest_cm":null,"length_cm":null,"shoulder_cm":null,"sleeve_cm":null,"material":"","fit":"","gender":"","measurements_note":"","price_low":0,"price_high":0,"photos_used":[],"label_text":""}. ' +
+    '{"brand":"","brand_confidence":0.0,"brand_evidence":"","name":"","category":"","pattern_or_details":"","color":"","condition":"","size":"","chest_cm":null,"length_cm":null,"shoulder_cm":null,"sleeve_cm":null,"material":"","fit":"","gender":"","measurements_note":"","defects":"","price_low":0,"price_high":0,"photos_used":[],"label_text":""}. ' +
     'name = konkret suchbar, Format "[Marke] [Typ] [Muster/Detail]", z.B. "Ralph Lauren Sweater gestreift", "Fred Perry Polo Shirt". ' +
     'VERBOTEN als name/category: Kleidungsstück, Artikel, Item, Clothing, Garment, Piece, Produkt. ' +
     'category = Typ (Sweater, Polo, Hoodie, Jacke, Jeans, Crewneck, Quarter Zip, T-Shirt, Cardigan, Hemd, Hose, Rock, Kleid). ' +
@@ -2093,7 +2225,8 @@ function buildPhotoAnalyzePrompt(mode = 'full') {
     'size nur wenn Etikett lesbar. cm-Felder nur wenn Maßband/Maße klar sichtbar, sonst null. ' +
     'price_low/price_high realistische DE-Wiederverkaufspreise als Zahlen. ' +
     'photos_used = alle Foto-Nummern die du wirklich genutzt hast (sollte möglichst alle sein). ' +
-    'Marke aus Logo/Etikett lesen – nicht erfinden. Wenn Marke auf irgendeinem Foto klar ist, brand setzen.';
+    'Marke aus Logo/Etikett lesen – nicht erfinden. Wenn Marke auf irgendeinem Foto klar ist, brand setzen. ' +
+    'Wenn Schäden sichtbar sind (Pilling, Flecken, Löcher, Schattierungen, defekte Nähte), setze defects kurz auf Deutsch.';
 }
 
 function mergeAnalysisResults(base, extra) {
@@ -2106,8 +2239,17 @@ function mergeAnalysisResults(base, extra) {
     if (as) return a;
     return b || a || '';
   };
-  out.brand = normalizeBrandName(prefer(base?.brand, extra?.brand) || prefer(extra?.brand, base?.brand));
-  out.name = prefer(base?.name, extra?.name);
+  const b1 = normalizeBrandName(base?.brand || base?.name_guess || '');
+  const b2 = normalizeBrandName(extra?.brand || extra?.name_guess || '');
+  const c1 = Number(base?.brand_confidence); const c2 = Number(extra?.brand_confidence);
+  const conf1 = Number.isFinite(c1) ? (c1 > 1 ? c1/100 : c1) : (b1 ? 0.55 : 0);
+  const conf2 = Number.isFinite(c2) ? (c2 > 1 ? c2/100 : c2) : (b2 ? 0.55 : 0);
+  if (b1 && b2) out.brand = conf2 > conf1 ? b2 : b1;
+  else out.brand = b1 || b2 || '';
+  // name: prefer concrete with brand
+  const n1 = prefer(base?.name, base?.name_guess);
+  const n2 = prefer(extra?.name, extra?.name_guess);
+  out.name = prefer(n1, n2);
   out.category = prefer(base?.category, extra?.category);
   out.color = prefer(base?.color, extra?.color);
   out.size = prefer(base?.size, extra?.size);
@@ -2212,9 +2354,21 @@ function applyPhotoAnalysis(parsed, opts = {}) {
     const learned = typeof applyLearnedName === 'function' ? applyLearnedName(bNow, cNow, name) : name;
     if (learned) name = learned;
   } catch (e) {}
+  // Finaler Name: Marke + Typ immer
+  name = buildSmartItemName(
+    document.getElementById('f-brand').value.trim() || bNow,
+    document.getElementById('f-category').value.trim() || cNow,
+    pattern,
+    name
+  );
   setVal('f-name', name, { force: true });
+  // nochmal lesen/erzwingen falls setVal geblockt
+  if (!document.getElementById('f-name').value.trim() || isGenericItemName(document.getElementById('f-name').value) ||
+      (bNow && !document.getElementById('f-name').value.toLowerCase().includes(bNow.toLowerCase()))) {
+    document.getElementById('f-name').value = buildSmartItemName(bNow, cNow || 'Sweater', pattern, '');
+  }
 
-  if (color) setVal('f-color', color, { force: overwrite });
+  if (color) setVal('f-color', color, { force: true });
 
   const validConditions = ['Zufriedenstellend', 'Gut', 'Sehr Gut', 'Neu', 'Neu mit Etikett'];
   const cond = pickFirstString(parsed.condition, parsed.zustand);
@@ -2269,8 +2423,26 @@ function applyPhotoAnalysis(parsed, opts = {}) {
   }
 
   prices = prices.filter(p => p.source !== 'ai');
-  const low = parseFloat(parsed.price_low ?? parsed.priceLow ?? parsed.min_price);
-  const high = parseFloat(parsed.price_high ?? parsed.priceHigh ?? parsed.max_price);
+  let low = parseFloat(parsed.price_low ?? parsed.priceLow ?? parsed.min_price);
+  let high = parseFloat(parsed.price_high ?? parsed.priceHigh ?? parsed.max_price);
+  // 0 vom Modell = ungültig
+  if (!Number.isFinite(low) || low <= 0) low = NaN;
+  if (!Number.isFinite(high) || high <= 0) high = NaN;
+  // Fallback aus gelernten Korrekturen
+  if ((isNaN(low) || isNaN(high)) && typeof learnedRange === 'function') {
+    try {
+      const lr = learnedRange(document.getElementById('f-brand').value, document.getElementById('f-category').value, document.getElementById('f-condition').value);
+      if (lr) {
+        if (isNaN(low)) low = lr.low;
+        if (isNaN(high)) high = lr.high;
+      }
+    } catch (e) {}
+  }
+  // grober Default nur wenn Marke erkannt aber kein Preis
+  if ((isNaN(low) || isNaN(high)) && document.getElementById('f-brand').value.trim()) {
+    if (isNaN(low)) low = 25;
+    if (isNaN(high)) high = 45;
+  }
   if (!isNaN(low) && low > 0) prices.push({ value: low, source: 'ai' });
   if (!isNaN(high) && high > 0 && high !== low) prices.push({ value: high, source: 'ai' });
   renderPrices();
@@ -2387,10 +2559,16 @@ async function runPhotoAnalysis({ silent = false } = {}) {
 
     const photoN = imgs.length;
     const used = Array.isArray(merged.photos_used) && merged.photos_used.length ? merged.photos_used.length : photoN;
-    let msg = 'Erkannt aus ' + photoN + ' Foto' + (photoN === 1 ? '' : 's') + ' (' + used + ' ausgewertet) · ' + providerLabel;
-    if (result.brand) msg += ' · ' + result.brand;
-    if (result.category || result.name) msg += ' · ' + (result.category || result.name);
+    // Immer die finalen Formularwerte anzeigen (nicht nur KI-Rohdaten)
+    const finalBrand = document.getElementById('f-brand')?.value.trim() || result.brand || '';
+    const finalName = document.getElementById('f-name')?.value.trim() || result.name || '';
+    const finalCat = document.getElementById('f-category')?.value.trim() || result.category || '';
+    let msg = 'Erkannt aus ' + photoN + ' Foto' + (photoN === 1 ? '' : 's') + ' · ' + providerLabel;
+    if (finalBrand) msg += ' · ' + finalBrand;
+    if (finalName && finalName.toLowerCase() !== (finalBrand||'').toLowerCase()) msg += ' · ' + finalName;
+    else if (finalCat) msg += ' · ' + finalCat;
     if (!isNaN(result.low) && !isNaN(result.high) && result.low > 0) msg += ' · Preis ' + fmtEUR(result.low) + '–' + fmtEUR(result.high);
+    else msg += ' · Preis bitte manuell';
     if (result.filledMeasures && result.filledMeasures.length) msg += ' · ' + result.filledMeasures.join(', ');
     if (!silent) {
       const statusEl = document.getElementById('analyze-status');
@@ -2607,10 +2785,13 @@ async function restoreCloudSession(){if(supabaseClient){await updateCloudStatus(
 
 async function deleteMyCloudData(){if(!confirm('Lokale Daten und deine Cloud-Daten löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const u=await currentCloudUser();try{localStorage.clear();if(u&&supabaseClient){await supabaseClient.from('inventory').delete().eq('user_id',u.id);await supabaseClient.from('price_references').delete().eq('user_id',u.id);await supabaseClient.from('invoices').delete().eq('user_id',u.id)}document.getElementById('privacy-status').textContent='Daten gelöscht. Die Seite wird neu geladen.';setTimeout(()=>location.reload(),700)}catch(e){document.getElementById('privacy-status').textContent='Fehler: '+e.message}}
 function switchView(view, button) {
-  ['check','cloud','privacy','inventory','invoices','library','stats'].forEach(v => document.getElementById(v + '-view').classList.toggle('hidden', v !== view));
+  ['check','quick','cloud','privacy','inventory','invoices','labels','library','stats'].forEach(v => document.getElementById(v + '-view').classList.toggle('hidden', v !== view));
   document.querySelectorAll('.nav-btn[data-view]').forEach(b => b.classList.remove('active'));
   if (button) button.classList.add('active');
   if (view === 'inventory') renderInventory();
+  if (view === 'labels') renderLabelItemSelect();
+  if (view === 'quick') { /* ready */ }
+  if (view === 'stats') renderStats();
   if (view === 'invoices') { renderInvoiceItems(); renderInvoiceHistory(); }
   if (view === 'library') document.getElementById('correction-library-slot').appendChild(document.getElementById('correction-panel'));
   if (view === 'stats') renderStats();
@@ -3238,7 +3419,6 @@ function renderInvoicePreview(){const id=document.getElementById('inv-item').val
 function generateInvoice(){saveInvoiceSettings();const id=document.getElementById('inv-item').value,r=inventoryData().find(x=>x.id===id);if(!r){alert('Bitte zuerst einen verkauften Artikel auswählen.');return}const seller=document.getElementById('inv-seller-name').value.trim(),customer=document.getElementById('inv-customer-name').value.trim()||'Kunde';const number=document.getElementById('inv-number').value.trim(),date=document.getElementById('inv-date').value,price=Number(r.soldPrice)||0;const html=`<div class="invoice-paper" id="invoice-paper"><div style="display:flex;justify-content:space-between;gap:20px;"><div><h2 style="color:#222;text-transform:none;font-size:22px;">${escapeHtml(seller||'Rechnungsteller')}</h2><div>${escapeHtml(document.getElementById('inv-seller-address').value)}</div><div>${escapeHtml(document.getElementById('inv-seller-email').value)}</div><div>${escapeHtml(document.getElementById('inv-seller-tax').value)}</div></div><div><b>RECHNUNG</b><br>Nr.: ${escapeHtml(number)}<br>Datum: ${escapeHtml(date)}</div></div><hr><p><b>Rechnung an:</b><br>${escapeHtml(customer)}<br>${escapeHtml(document.getElementById('inv-customer-address').value)}<br>${escapeHtml(document.getElementById('inv-customer-email').value)}</p><table><thead><tr><th>Beschreibung</th><th>Menge</th><th>Preis</th></tr></thead><tbody><tr><td>${escapeHtml(r.name||r.brand||'Artikel')}<br><small>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</small></td><td>1</td><td>${fmtEUR(price)}</td></tr></tbody></table><p class="invoice-total">Gesamtbetrag: ${fmtEUR(price)}</p><p><b>Status:</b> ${escapeHtml(document.getElementById('inv-status').value)}</p><p>Zahlungsart: ${escapeHtml(document.getElementById('inv-payment').value||'nicht angegeben')}</p><p style="font-size:11px;margin-top:32px;">${document.getElementById('inv-tax-mode').value==='kleinunternehmer'?'Gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen.':(document.getElementById('inv-seller-tax').value?'Steuerangaben: '+escapeHtml(document.getElementById('inv-seller-tax').value):'Bitte Steuerangaben ergänzen.')}</p></div>`;document.getElementById('invoice-preview').innerHTML=html;let hist=[];try{hist=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(e){};hist.unshift({number,date,customer,item:r.name||r.brand||'Artikel',amount:price,status:document.getElementById('inv-status').value,taxMode:document.getElementById('inv-tax-mode').value,address:document.getElementById('inv-customer-address').value,email:document.getElementById('inv-customer-email').value,payment:document.getElementById('inv-payment').value});localStorage.setItem('preis-check-invoices',JSON.stringify(hist.slice(0,100)));renderInvoiceHistory()}
 function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
 function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
-
 function learnedRange(brand,category,condition){const b=(brand||'').toLowerCase(),c=(category||'').toLowerCase(),co=(condition||'').toLowerCase();const list=loadCorrections().map(x=>{const ib=(x.brand||'').toLowerCase(),ic=(x.category||'').toLowerCase(),io=(x.condition||'').toLowerCase();let score=0;if(b&&ib===b)score+=5;else if(b&&ib.includes(b)||b&&ib&&b.includes(ib))score+=3;if(c&&ic===c)score+=5;else if(c&&ic.includes(c)||c&&ic&&c.includes(ic))score+=3;if(co&&io===co)score+=2;return {x,score}}).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score).slice(0,12);if(!list.length)return null;const weights=list.map(x=>x.score),sum=weights.reduce((a,v)=>a+v,0);return {low:list.reduce((a,v,i)=>a+v.x.low*weights[i],0)/sum,high:list.reduce((a,v,i)=>a+(v.x.high||v.x.low)*weights[i],0)/sum,count:list.length}}
 function renderLearningInsights(){const e=document.getElementById('learning-insights');if(!e)return;const l=loadCorrections(),values=l.flatMap(x=>[Number(x.low)||0,Number(x.high)||Number(x.low)||0]).filter(Boolean),brands=new Set(l.map(x=>x.brand).filter(Boolean)),cats=new Set(l.map(x=>x.category).filter(Boolean));e.innerHTML=`<div class="metric"><span class="muted">Preisreferenzen</span><strong>${l.length}</strong></div><div class="metric"><span class="muted">Marken gelernt</span><strong>${brands.size}</strong></div><div class="metric"><span class="muted">Kategorien gelernt</span><strong>${cats.size}</strong></div><div class="metric"><span class="muted">Durchschnittliche Range-Mitte</span><strong>${values.length?fmtEUR(values.reduce((a,v)=>a+v,0)/values.length):'–'}</strong></div>`}
 function localFallbackEstimate(){const r=learnedRange(document.getElementById('f-brand').value,document.getElementById('f-category').value,document.getElementById('f-condition').value);if(!r)return false;prices=prices.filter(p=>p.source!=='ai');prices.push({value:r.low,source:'ai'},{value:r.high,source:'ai'});renderPrices();calculate();return true}
@@ -3656,7 +3836,16 @@ function markRequiredFields(){
   ['f-name','f-brand','f-category'].forEach(id=>{
     const input=document.getElementById(id); if(!input) return;
     const wrap=input.closest('div');
-    const empty=!input.value.trim() || (id==='f-name' && isGenericItemName(input.value));
+    let empty=!input.value.trim();
+    if(id==='f-name'){
+      const b=document.getElementById('f-brand')?.value.trim()||'';
+      const c=document.getElementById('f-category')?.value.trim()||'';
+      // Name ok wenn Marke+Kategorie stehen – auch wenn Name nur Typ ist, bauen wir ihn
+      if(empty && b && c){ input.value=buildSmartItemName(b,c,'',''); empty=false; }
+      else if(isGenericItemName(input.value) && (b||c)){ input.value=buildSmartItemName(b,c||'Sweater','',input.value); empty=false; }
+      else if(isGenericItemName(input.value) && !b && !c) empty=true;
+      else empty=!input.value.trim();
+    }
     if(wrap) wrap.classList.toggle('field-error', empty);
     if(empty) ok=false;
   });
@@ -3766,10 +3955,14 @@ function showConfidence(info){
   el.textContent=`🔎 KI-Sicherheit ca. ${pct}% · ${info.note||''}`;
 }
 function scoreAnalysisConfidence(parsed, brand, category, name){
+  brand = brand || document.getElementById('f-brand')?.value.trim() || '';
+  category = category || document.getElementById('f-category')?.value.trim() || '';
+  name = name || document.getElementById('f-name')?.value.trim() || '';
   let s=0.25; const notes=[];
-  if(brand) { s+=0.3; } else { notes.push('Marke unsicher'); }
+  if(brand) { s+=0.35; } else { notes.push('Marke unsicher'); }
   if(category && !isGenericCategory(category)) s+=0.2; else notes.push('Typ unsicher');
-  if(name && !isGenericItemName(name)) s+=0.15;
+  if(name && !isGenericItemName(name) && (!brand || name.toLowerCase().includes(brand.toLowerCase()))) s+=0.2;
+  else if(name && !isGenericItemName(name)) s+=0.1;
   if(parsed?.size) s+=0.05;
   if(parsed?.color) s+=0.05;
   if(parsed?.chest_cm || parsed?.length_cm) s+=0.05;
@@ -4193,8 +4386,611 @@ try{
   maybeWeeklyBackupNag();
 }catch(e){}
 
+
+/* ===== Pack: Schnellcheck, Foto-Pipeline, Labels, Undo, Business+, KI+ ===== */
+const FEE_PRESETS = {
+  Vinted: { pct: 5, fixed: 0 },
+  eBay: { pct: 12, fixed: 0.35 },
+  Kleinanzeigen: { pct: 0, fixed: 0 },
+  Sonstiges: { pct: 8, fixed: 0 }
+};
+const UNDO_KEY = 'preis-check-undo-stack';
+let quickImage = null;
+let quickPrices = [];
+let quickMeta = { name:'', brand:'', category:'', condition:'' };
+
+function applyFeePreset(platform, btn){
+  const p = FEE_PRESETS[platform] || FEE_PRESETS.Sonstiges;
+  const a = document.getElementById('f-fee-pct');
+  const b = document.getElementById('f-fee-fixed');
+  if (a) a.value = p.pct;
+  if (b) b.value = p.fixed;
+  const qa = document.getElementById('quick-fee-pct');
+  const qb = document.getElementById('quick-fee-fixed');
+  if (qa) qa.value = p.pct;
+  if (qb) qb.value = p.fixed;
+  document.querySelectorAll('#fee-presets button').forEach(x=>x.classList.toggle('active', x.getAttribute('data-fee')===platform));
+  if (btn) btn.classList.add('active');
+  // remember with platform field if exists
+  const plat = document.getElementById('f-platform');
+  if (plat && [...plat.options].some(o=>o.value===platform)) plat.value = platform;
+  if (typeof calculate === 'function') calculate();
+  if (typeof calcQuick === 'function') calcQuick();
+}
+
+function getTaxMode(){ return document.getElementById('f-tax-mode')?.value || 'brutto'; }
+function taxAdjustSale(sale){
+  // For display: if netto+USt, market is treated as net selling desire? We treat entered/market as brutto consumer price unless netto mode.
+  const mode = getTaxMode();
+  if (!sale || isNaN(sale)) return { net: sale, vat: 0, gross: sale };
+  if (mode === 'netto19') {
+    const vat = sale * 0.19;
+    return { net: sale, vat, gross: sale + vat };
+  }
+  if (mode === 'netto7') {
+    const vat = sale * 0.07;
+    return { net: sale, vat, gross: sale + vat };
+  }
+  // brutto: no extra vat line (Kleinunternehmer)
+  return { net: sale, vat: 0, gross: sale };
+}
+
+// ---- Undo delete ----
+function pushUndo(item){
+  try{
+    const stack = JSON.parse(localStorage.getItem(UNDO_KEY)||'[]');
+    stack.unshift({ at: Date.now(), item });
+    localStorage.setItem(UNDO_KEY, JSON.stringify(stack.slice(0,10)));
+  }catch(e){}
+}
+function undoLastDelete(){
+  try{
+    const stack = JSON.parse(localStorage.getItem(UNDO_KEY)||'[]');
+    if(!stack.length){ showToast('Nichts zum Wiederherstellen'); return; }
+    const entry = stack.shift();
+    localStorage.setItem(UNDO_KEY, JSON.stringify(stack));
+    const l = inventoryData();
+    l.unshift(entry.item);
+    saveInventoryData(l);
+    renderInventory(); renderStats();
+    showToast('Löschen rückgängig ✓');
+  }catch(e){ showToast('Undo fehlgeschlagen'); }
+}
+const _deleteItem = typeof deleteItem === 'function' ? deleteItem : null;
+if (_deleteItem) {
+  window.deleteItem = function(id){
+    const r = inventoryData().find(x=>x.id===id);
+    if(!r) return;
+    if(!confirm('Artikel löschen? (Undo 10s möglich)')) return;
+    pushUndo(JSON.parse(JSON.stringify(r)));
+    saveInventoryData(inventoryData().filter(x=>x.id!==id));
+    renderInventory(); renderStats();
+    showToast('Gelöscht · Undo?', 8000);
+    // temporary undo affordance
+    const t = document.getElementById('app-toast');
+    if(t){
+      t.innerHTML = 'Gelöscht. <a href="#" style="color:var(--gold)" onclick="event.preventDefault();undoLastDelete()">Rückgängig</a>';
+      t.classList.add('show');
+    }
+  };
+}
+
+// ---- Labels ----
+function renderLabelItemSelect(){
+  const sel = document.getElementById('label-item'); if(!sel) return;
+  const items = inventoryData();
+  sel.innerHTML = '<option value="">– Artikel wählen –</option>' + items.map(r=>
+    `<option value="${r.id}">${escapeHtml(r.articleNo||'')} · ${escapeHtml(r.name||r.brand||'Artikel')}</option>`
+  ).join('');
+  renderLabelPreview();
+}
+function code39Bars(text){
+  // simplified visual barcode (not scannable industrial), good enough warehouse label
+  const s = String(text||'SKU').toUpperCase().replace(/[^A-Z0-9\-]/g,'');
+  let html = '';
+  for (let i=0;i<s.length;i++){
+    const code = s.charCodeAt(i);
+    for (let b=0;b<5;b++){
+      const on = ((code + b*3 + i) % 3) !== 0;
+      html += `<span style="display:inline-block;width:${on?2:1}px;height:40px;background:${on?'#000':'#fff'};margin-right:1px"></span>`;
+    }
+    html += `<span style="display:inline-block;width:3px"></span>`;
+  }
+  return html;
+}
+function renderLabelPreview(){
+  const id = document.getElementById('label-item')?.value;
+  const r = inventoryData().find(x=>x.id===id);
+  const loc = document.getElementById('label-location')?.value.trim()||'';
+  const box = document.getElementById('label-preview'); if(!box) return;
+  if(!r){ box.innerHTML = '<span class="muted">Artikel wählen.</span>'; return; }
+  const sku = r.articleNo || r.id;
+  box.innerHTML = `<div class="label-sheet">
+    <div class="sku">${escapeHtml(sku)}</div>
+    <div style="margin:8px 0">${code39Bars(sku)}</div>
+    <div style="font-size:14px;font-weight:bold">${escapeHtml(r.name||r.brand||'Artikel')}</div>
+    <div style="font-size:12px">${escapeHtml([r.brand,r.category,r.size,r.color].filter(Boolean).join(' · '))}</div>
+    <div style="font-size:12px;margin-top:6px">EK ${fmtEUR(r.ek)} · ${escapeHtml(r.status||'')}${loc?' · '+escapeHtml(loc):''}</div>
+  </div>`;
+}
+function printLabels(){
+  const id = document.getElementById('label-item')?.value;
+  const r = inventoryData().find(x=>x.id===id);
+  if(!r){ alert('Bitte Artikel wählen'); return; }
+  const n = Math.max(1, Math.min(20, parseInt(document.getElementById('label-count')?.value||'1',10)||1));
+  const loc = document.getElementById('label-location')?.value.trim()||'';
+  const sku = r.articleNo || r.id;
+  const one = `<div style="width:70mm;height:40mm;border:1px solid #000;padding:4mm;margin:4mm;display:inline-block;vertical-align:top;font-family:Arial">
+    <div style="font-size:16px;font-weight:bold">${escapeHtml(sku)}</div>
+    <div style="margin:3px 0">${code39Bars(sku)}</div>
+    <div style="font-size:11px;font-weight:bold">${escapeHtml((r.name||r.brand||'').slice(0,42))}</div>
+    <div style="font-size:10px">${escapeHtml([r.brand,r.size,r.color].filter(Boolean).join(' · '))}</div>
+    <div style="font-size:10px">EK ${fmtEUR(r.ek)}${loc?' · '+escapeHtml(loc):''}</div>
+  </div>`;
+  const area = document.getElementById('print-area');
+  area.innerHTML = Array.from({length:n},()=>one).join('');
+  setTimeout(()=>window.print(), 100);
+}
+
+// ---- Quick check ----
+async function handleQuickFile(file){
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async (e) => {
+    quickImage = await resizeImage(e.target.result, 1100, 0.85);
+    const img = document.getElementById('quick-preview');
+    const hint = document.getElementById('quick-hint');
+    if(img){ img.src=quickImage; img.style.display='inline-block'; }
+    if(hint) hint.style.display='none';
+    document.getElementById('quick-analyze-btn').disabled = false;
+  };
+  reader.readAsDataURL(file);
+}
+function clearQuick(){
+  quickImage=null; quickPrices=[]; quickMeta={name:'',brand:'',category:'',condition:''};
+  const img=document.getElementById('quick-preview'); if(img){img.removeAttribute('src'); img.style.display='none';}
+  const hint=document.getElementById('quick-hint'); if(hint) hint.style.display='block';
+  const f=document.getElementById('quick-file'); if(f) f.value='';
+  document.getElementById('quick-analyze-btn').disabled = true;
+  document.getElementById('quick-ek').value='';
+  ['quick-item','quick-market','quick-maxek','quick-profit'].forEach(id=>{ const e=document.getElementById(id); if(e)e.textContent='–'; });
+  document.getElementById('quick-status').textContent='';
+  const v=document.getElementById('quick-verdict');
+  v.className='quick-verdict maybe'; v.innerHTML='<div class="qv-big">Bereit</div><div>Foto analysieren und optional EK eintragen.</div>';
+}
+function calcQuick(){
+  const market = quickPrices.length ? median(quickPrices.map(v=>({value:v}))) : null;
+  const margin = parseFloat(document.getElementById('quick-margin')?.value)||50;
+  const feePct = parseFloat(document.getElementById('quick-fee-pct')?.value)||0;
+  const feeFixed = parseFloat(document.getElementById('quick-fee-fixed')?.value)||0;
+  const ek = parseFloat(document.getElementById('quick-ek')?.value);
+  const netAtMarket = market!=null ? market - market*feePct/100 - feeFixed : null;
+  const maxEk = netAtMarket!=null && netAtMarket>0 ? netAtMarket/(1+margin/100) : null;
+  setText('quick-market', market!=null?fmtEUR(market):'–');
+  setText('quick-maxek', maxEk!=null?fmtEUR(maxEk):'–');
+  const v=document.getElementById('quick-verdict');
+  if(market==null){
+    setText('quick-profit','–');
+    v.className='quick-verdict maybe'; v.innerHTML='<div class="qv-big">Warte auf Analyse</div><div>Marktpreis fehlt noch.</div>';
+    return;
+  }
+  if(!Number.isFinite(ek) || ek<=0){
+    setText('quick-profit','–');
+    v.className='quick-verdict maybe';
+    v.innerHTML=`<div class="qv-big">Max. EK ${fmtEUR(maxEk)}</div><div>Markt ${fmtEUR(market)} · Zielmarge ${margin}% netto. Trag dein EK-Angebot ein.</div>`;
+    return;
+  }
+  const profit = (netAtMarket!=null?netAtMarket:market) - ek;
+  const pct = profit/ek*100;
+  setText('quick-profit', fmtEUR(profit)+' ('+pct.toFixed(1)+'%)');
+  if(profit<=0){
+    v.className='quick-verdict no';
+    v.innerHTML=`<div class="qv-big">❌ Nein</div><div>EK zu hoch. Max. EK ${fmtEUR(maxEk)} bei Markt ${fmtEUR(market)}.</div>`;
+  } else if(pct>=margin){
+    v.className='quick-verdict yes';
+    v.innerHTML=`<div class="qv-big">✅ Kaufen</div><div>Netto-Marge ${pct.toFixed(1)}% ≥ Ziel ${margin}%.</div>`;
+  } else {
+    v.className='quick-verdict maybe';
+    v.innerHTML=`<div class="qv-big">⚠️ Knapp</div><div>Marge ${pct.toFixed(1)}% unter ${margin}%. Nachverhandeln Richtung ${fmtEUR(maxEk)}.</div>`;
+  }
+}
+async function runQuickCheck(){
+  const key=getApiKey(); if(!key){ openSettings(); return; }
+  if(!quickImage){ document.getElementById('quick-status').textContent='Foto fehlt'; return; }
+  const st=document.getElementById('quick-status'); const btn=document.getElementById('quick-analyze-btn');
+  btn.disabled=true; st.textContent='Analysiere…';
+  try{
+    // temporarily use pendingImages pipeline
+    const prev=pendingImages.slice(); const prev1=pendingImage;
+    pendingImages=[quickImage]; pendingImage=quickImage;
+    const res = await runPhotoAnalysis({ silent:true });
+    pendingImages=prev; pendingImage=prev1;
+    quickMeta = {
+      name: document.getElementById('f-name')?.value.trim()||res?.name||'',
+      brand: document.getElementById('f-brand')?.value.trim()||res?.brand||'',
+      category: document.getElementById('f-category')?.value.trim()||res?.category||'',
+      condition: document.getElementById('f-condition')?.value||''
+    };
+    // restore form fields? analysis wrote into main form - capture then we can leave or restore
+    quickPrices = [];
+    if (res?.low>0) quickPrices.push(res.low);
+    if (res?.high>0) quickPrices.push(res.high);
+    // also from prices chips if set
+    const m = median(prices);
+    if (m!=null) { quickPrices = prices.filter(p=>p.source==='ai').map(p=>p.value); if(!quickPrices.length && m) quickPrices=[m]; }
+    setText('quick-item', [quickMeta.brand, quickMeta.name||quickMeta.category].filter(Boolean).join(' · ')||'–');
+    st.textContent = res?.message || 'Fertig';
+    calcQuick();
+  }catch(e){
+    st.textContent='Fehler: '+(e.message||e);
+  }finally{ btn.disabled=false; }
+}
+function sendQuickToFull(){
+  if(quickImage){
+    pendingImages=[quickImage]; pendingImage=quickImage; syncPhotoUi();
+  }
+  if(quickMeta.brand) document.getElementById('f-brand').value=quickMeta.brand;
+  if(quickMeta.name) document.getElementById('f-name').value=quickMeta.name;
+  if(quickMeta.category) document.getElementById('f-category').value=quickMeta.category;
+  if(quickMeta.condition) document.getElementById('f-condition').value=quickMeta.condition;
+  if(quickPrices.length){
+    prices = quickPrices.map(v=>({value:v, source:'ai'}));
+    renderPrices();
+  }
+  const ek=document.getElementById('quick-ek')?.value;
+  if(ek) document.getElementById('f-ek-total').value=ek;
+  applyFeePreset(document.getElementById('quick-platform')?.value||'Vinted');
+  calculate();
+  switchView('check', document.querySelector('.nav-btn[data-view="check"]'));
+  showToast('In Preis-Check übernommen');
+}
+
+// ---- Photo pipeline: local thumbs + optional cloud full ----
+async function ensureCloudPhoto(fullDataUrl, itemId, index){
+  const u = await currentCloudUser().catch(()=>null);
+  if(!u || !supabaseClient || !fullDataUrl || !String(fullDataUrl).startsWith('data:')) return null;
+  try{
+    const path = await uploadPhotoToCloud(fullDataUrl, u.id, itemId||('tmp-'+Date.now()), index||0);
+    return path;
+  }catch(e){ console.warn('cloud photo', e); return null; }
+}
+async function toLocalThumb(dataUrl){
+  try { return await resizeImage(dataUrl, 360, 0.5); } catch(e){ return dataUrl; }
+}
+// wrap handleFile to store full separately? Keep pending as analysis-quality; on save store thumbs locally + cloud paths if logged in
+const _currentRecord = currentRecord;
+currentRecord = function(){
+  const r = _currentRecord();
+  // mark photo mode
+  r.photoMode = r.photoMode || 'local';
+  return r;
+};
+const _saveCurrentItemBase = saveCurrentItem;
+saveCurrentItem = async function(options={}){
+  // before save: convert photos to thumbs for localStorage; upload full if cloud user
+  try{
+    const u = await currentCloudUser().catch(()=>null);
+    const fulls = pendingImages.slice(0, MAX_PHOTOS);
+    const thumbs = [];
+    const cloudPaths = [];
+    for(let i=0;i<fulls.length;i++){
+      const src=fulls[i];
+      if(!src) continue;
+      if(String(src).startsWith('http') || (!String(src).startsWith('data:') && src.includes('/'))){
+        thumbs.push(src); cloudPaths.push(src); continue;
+      }
+      thumbs.push(await toLocalThumb(src));
+      if(u){
+        const p = await ensureCloudPhoto(src, currentItemId || ('new-'+Date.now()), i);
+        if(p) cloudPaths.push(p);
+      }
+    }
+    // temporarily replace pending with thumbs for record
+    const bak = pendingImages.slice();
+    pendingImages = thumbs;
+    // also stash cloud paths on record after base save via postprocess
+    const ok = await _saveCurrentItemBase(options);
+    pendingImages = bak;
+    if(ok && cloudPaths.length){
+      const l=inventoryData();
+      const r=l.find(x=>x.id===currentItemId);
+      if(r){
+        r.cloudPhotos = cloudPaths;
+        // prefer showing thumbs locally
+        r.photos = thumbs;
+        r.photoMode = u ? 'hybrid' : 'local-thumbs';
+        try{ saveInventoryData(l); }catch(e){}
+      }
+    }
+    return ok;
+  }catch(e){
+    return await _saveCurrentItemBase(options);
+  }
+};
+
+// When loading item, if cloudPhotos and user logged in, try signed urls into pending for analysis
+const _loadItem2 = loadItem;
+loadItem = async function(id){
+  _loadItem2(id);
+  try{
+    const r = inventoryData().find(x=>x.id===id);
+    if(r && Array.isArray(r.cloudPhotos) && r.cloudPhotos.length && supabaseClient){
+      const u = await currentCloudUser().catch(()=>null);
+      if(u){
+        const signed = await Promise.all(r.cloudPhotos.map(p=>signedPhotoUrl(p)));
+        const goods = signed.filter(Boolean);
+        if(goods.length){
+          // keep thumbs in inventory; for editing use signed full if available
+          pendingImages = goods.slice(0, MAX_PHOTOS);
+          pendingImage = pendingImages[0]||null;
+          syncPhotoUi();
+        }
+      }
+    }
+  }catch(e){}
+};
+
+// ---- Brand manual learn UI ----
+function openBrandFix(prefill=''){
+  const box=document.getElementById('brand-fix'); if(!box) return;
+  box.classList.add('open');
+  const inp=document.getElementById('manual-brand');
+  if(inp){ inp.value = prefill || document.getElementById('f-brand')?.value || ''; inp.focus(); }
+}
+function applyManualBrandLearn(){
+  const brand=(document.getElementById('manual-brand')?.value||'').trim();
+  if(!brand){ showToast('Marke eingeben'); return; }
+  const oldBrand=document.getElementById('f-brand')?.value.trim()||'';
+  const cat=document.getElementById('f-category')?.value.trim()||'';
+  const oldName=document.getElementById('f-name')?.value.trim()||'';
+  document.getElementById('f-brand').value=brand;
+  const newName=typeof buildSmartItemName==='function'?buildSmartItemName(brand, cat||'Sweater','',oldName): (brand+' '+(cat||oldName));
+  document.getElementById('f-name').value=newName;
+  if(typeof rememberNameCorrection==='function') rememberNameCorrection(oldName, newName, brand, cat);
+  // also store brand learn map
+  try{
+    const map=JSON.parse(localStorage.getItem('preis-check-brand-learn')||'{}');
+    const key=(oldBrand||oldName||'unknown').toLowerCase();
+    map[key]=brand; map['last']=brand;
+    localStorage.setItem('preis-check-brand-learn', JSON.stringify(map));
+  }catch(e){}
+  document.getElementById('brand-fix')?.classList.remove('open');
+  if(typeof showConfidence==='function') showConfidence({score:0.9, note:'Marke manuell gesetzt: '+brand});
+  showToast('Marke gelernt: '+brand);
+  renderResearchLinks();
+  renderSoldLinks();
+  renderPriceStrategy();
+  calculate();
+}
+// show brand fix when confidence low
+const _showConfidence = typeof showConfidence==='function'?showConfidence:null;
+if(_showConfidence){
+  window.showConfidence=function(info){
+    _showConfidence(info);
+    const box=document.getElementById('brand-fix');
+    if(!box) return;
+    const brand=document.getElementById('f-brand')?.value.trim();
+    if(!brand || (info && info.score<0.6) || (info && /Marke unsicher/i.test(info.note||''))) box.classList.add('open');
+    else if(brand && info && info.score>=0.75) box.classList.remove('open');
+  };
+}
+
+// ---- Sold listing search links (no scraper) ----
+function renderSoldLinks(){
+  const el=document.getElementById('sold-links'); if(!el) return;
+  const q=[document.getElementById('f-brand')?.value.trim(), document.getElementById('f-category')?.value.trim()||document.getElementById('f-name')?.value.trim()].filter(Boolean).join(' ');
+  if(!q){ el.innerHTML=''; return; }
+  const enc=encodeURIComponent(q);
+  const links=[
+    {label:'eBay verkauft', url:`https://www.ebay.de/sch/i.html?_nkw=${enc}&LH_Sold=1&LH_Complete=1`},
+    {label:'Vinted Suche', url:`https://www.vinted.de/catalog?search_text=${enc}&order=price_low_to_high`},
+    {label:'Google Shopping', url:`https://www.google.com/search?tbm=shop&q=${enc}`},
+    {label:'Kleinanzeigen', url:`https://www.kleinanzeigen.de/s-${enc}/k0`}
+  ];
+  el.innerHTML = links.map(l=>`<a class="research-btn" href="${l.url}" target="_blank" rel="noopener">🔎 ${l.label}</a>`).join('');
+}
+const _renderResearchLinks = renderResearchLinks;
+renderResearchLinks = function(){ _renderResearchLinks(); renderSoldLinks(); renderPriceStrategy(); };
+
+// ---- 3 price strategies text ----
+function renderPriceStrategy(){
+  const el=document.getElementById('price-strategy'); if(!el) return;
+  const market=median(prices);
+  if(market==null){ el.textContent=''; return; }
+  const feePct=typeof getFeePct==='function'?getFeePct():5;
+  const feeFixed=typeof getFeeFixed==='function'?getFeeFixed():0;
+  const ek=parseFloat(document.getElementById('f-ek-total')?.value)||0;
+  const fast=market*0.9, norm=market, prem=market*1.08;
+  const net= (s)=> s - s*feePct/100 - feeFixed;
+  const line=(label,s)=>{
+    const n=net(s); const p=ek>0?((n-ek)/ek*100):null;
+    return `${label}: ${fmtEUR(s)} → netto ${fmtEUR(n)}${p!=null?` · Marge ${p.toFixed(0)}%`:''}`;
+  };
+  el.innerHTML = `<b style="color:var(--ink)">Preis-Strategien:</b><br>
+    ${line('⚡ 3-Tage-Verkauf (schnell)', fast)}<br>
+    ${line('📦 Normal (Median)', norm)}<br>
+    ${line('💎 Max-Marge (Geduld)', prem)}`;
+}
+const _calculate = calculate;
+calculate = function(){
+  _calculate();
+  try{ renderPriceStrategy(); }catch(e){}
+  // tax line if present
+  try{
+    const market=median(prices);
+    const t=taxAdjustSale(market);
+    let el=document.getElementById('res-tax');
+    if(!el){
+      // inject soft
+    }
+  }catch(e){}
+};
+
+// defects from analysis already in prompt? enhance applyPhotoAnalysis to set defects
+const _applyPhotoAnalysis = applyPhotoAnalysis;
+applyPhotoAnalysis = function(parsed, opts){
+  const res = _applyPhotoAnalysis(parsed, opts);
+  try{
+    const def = pickFirstString(parsed?.defects, parsed?.damage, parsed?.flaws, parsed?.condition_notes, parsed?.mängel);
+    if(def && document.getElementById('f-defects') && !document.getElementById('f-defects').value.trim()){
+      // only if looks like damage not generic condition
+      if(/pill|fleck|loch|riss|defekt|wasch|abgenutzt|färb|shrink|mahnung|mangel/i.test(def) || def.length>8){
+        document.getElementById('f-defects').value = def;
+      }
+    }
+  }catch(e){}
+  try{ renderSoldLinks(); renderPriceStrategy(); }catch(e){}
+  return res;
+};
+// add defects to full analyze prompt
+// (string inject)
+// EN listing
+async function generateDescriptionEn(){
+  const key=getApiKey(); if(!key){ openSettings(); return; }
+  if(!hasArticleData()){ document.getElementById('desc-status').textContent='Zuerst Artikeldaten.'; return; }
+  const st=document.getElementById('desc-status'); const b=document.getElementById('desc-en-btn');
+  if(b) b.disabled=true; st.textContent='EN-Listing…';
+  try{
+    const f=getDescriptionFields();
+    const prompt='Create an English Vinted/eBay listing for: '+[f.brand,f.name||f.category,f.color,f.size].filter(Boolean).join(', ')+
+      '. Condition: '+(f.condition||'not specified')+'. Defects: '+(f.defects||'none stated')+'. '+
+      'Use sections: CONDITION, SIZE, MEASUREMENTS (only if provided), DETAILS, SHIPPING. '+
+      'Measurements: '+[f.chest&&('pit to pit '+f.chest),f.length&&('length '+f.length),f.sleeve&&('sleeve '+f.sleeve)].filter(Boolean).join(', ')+'. '+
+      'No invented facts. Return JSON {"title":"...","description":"...","extra_hashtags":["..."]} with a one-line title like "Ralph Lauren Vintage Sweater Size M Navy in retro y2k streetwear style".';
+    const raw = getProvider()==='groq'? await groqDirectRequest(key,prompt,pendingImages): await geminiDirectRequest(key,prompt,pendingImages);
+    const o=parseGeminiJSON(raw);
+    if(o.title) setGeneratedTitle(normalizeGeneratedTitle(o.title), 'EN Titel');
+    const desc=(o.description||'').trim();
+    const tags=[...(o.extra_hashtags||[])].map(x=>String(x).toLowerCase().replace(/[^a-z0-9]/g,'')).filter(Boolean);
+    const tagLine=['vinted','vintage','y2k','streetwear',...tags].filter((v,i,a)=>a.indexOf(v)===i).slice(0,30).map(t=>'#'+t).join(' ');
+    document.getElementById('generated-description').value = (desc||'English description unavailable.')+'\n\n'+tagLine;
+    // force title lang visual
+    setTitleLang('en');
+    st.textContent='EN-Listing fertig.';
+    showToast('EN Listing erstellt');
+  }catch(e){
+    st.textContent='EN-Fehler: '+(e.message||e);
+  }finally{ if(b) b.disabled=false; }
+}
+
+// ---- Business extras in stats (extend existing enhanced stats) ----
+const _renderStatsBiz = renderStats;
+renderStats = function(){
+  _renderStatsBiz();
+  const el=document.getElementById('stats-content'); if(!el) return;
+  const l=inventoryData();
+  // cashflow by week last 8 weeks
+  const weeks={};
+  const now=new Date();
+  function weekKey(d){
+    const dt=new Date(d); const day=(dt.getDay()+6)%7;
+    const monday=new Date(dt); monday.setDate(dt.getDate()-day); monday.setHours(0,0,0,0);
+    return monday.toISOString().slice(0,10);
+  }
+  l.forEach(r=>{
+    if(Number(r.ek)>0){
+      const k=weekKey(r.created||r.updated||now);
+      if(!weeks[k]) weeks[k]={ek:0,rev:0,profit:0};
+      // count ek once when created/updated that week roughly
+      weeks[k].ek += Number(r.ek)||0;
+    }
+    if(Number(r.soldPrice)>0 || r.status==='verkauft'){
+      const k=weekKey(r.soldAt||r.updated||now);
+      if(!weeks[k]) weeks[k]={ek:0,rev:0,profit:0};
+      weeks[k].rev += Number(r.soldPrice)||0;
+      weeks[k].profit += (Number(r.soldPrice)||0)-(Number(r.ek)||0);
+    }
+  });
+  const weekRows=Object.entries(weeks).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,8)
+    .map(([k,v])=>`<div class="stat-line"><span class="label">KW ab ${new Date(k).toLocaleDateString('de-DE')}</span><span class="value">EK ${fmtEUR(v.ek)} · Umsatz ${fmtEUR(v.rev)} · G ${fmtEUR(v.profit)}</span></div>`).join('');
+
+  // monthly ROI
+  const months={};
+  l.filter(r=>Number(r.soldPrice)>0).forEach(r=>{
+    const d=new Date(r.soldAt||r.updated||now);
+    const k=d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+    if(!months[k]) months[k]={rev:0,ek:0,n:0};
+    months[k].rev+=Number(r.soldPrice)||0; months[k].ek+=Number(r.ek)||0; months[k].n++;
+  });
+  const monthRows=Object.entries(months).sort((a,b)=>b[0].localeCompare(a[0])).slice(0,8)
+    .map(([k,v])=>{
+      const roi=v.ek>0?((v.rev-v.ek)/v.ek*100):0;
+      return `<div class="stat-line"><span class="label">${k} · n=${v.n}</span><span class="value">ROI ${roi.toFixed(1)}% · Kapital ${fmtEUR(v.ek)} · G ${fmtEUR(v.rev-v.ek)}</span></div>`;
+    }).join('');
+  const active=l.filter(x=>!['verkauft','archiviert','nicht verkauft'].includes(x.status||'geplant'));
+  const capital=active.reduce((a,x)=>a+(Number(x.ek)||0),0);
+
+  // next to list: oldest listed + best expected margin proxy (market-ek)/ek if prices
+  const candidates=active.map(r=>{
+    const m=median(r.prices||[]);
+    const ek=Number(r.ek)||0;
+    const age=itemAgeDays(r)||0;
+    const exp = (m!=null && ek>0) ? ((m-ek)/ek*100) : 0;
+    const score = age*0.6 + exp*0.4;
+    return {r,m,ek,age,exp,score};
+  }).sort((a,b)=>b.score-a.score).slice(0,8);
+  const nextHtml = candidates.length ? candidates.map(({r,m,age,exp})=>
+    `<div class="next-card"><div><b>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'')}</b><div class="muted" style="font-size:11px">${age}T · Markt ${fmtEUR(m)} · erwart. ${exp.toFixed(0)}%</div></div>
+     <button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button></div>`
+  ).join('') : '<span class="muted" style="font-size:12px">Keine aktiven Artikel.</span>';
+
+  // weekly profit goal ampel
+  let goals={revenue:1000,profit:300,articlesWeek:10,profitWeek:80};
+  try{ goals={...goals,...JSON.parse(localStorage.getItem('preis-check-goals')||'{}')}; }catch(e){}
+  const startWeek=new Date(); startWeek.setDate(startWeek.getDate()-((startWeek.getDay()+6)%7)); startWeek.setHours(0,0,0,0);
+  const weekProfit=l.filter(r=>(Number(r.soldPrice)>0)&& new Date(r.soldAt||r.updated||0)>=startWeek)
+    .reduce((a,r)=>a+((Number(r.soldPrice)||0)-(Number(r.ek)||0)),0);
+  const pw=Number(goals.profitWeek)||80;
+  const pct=Math.min(100, Math.round(weekProfit/Math.max(1,pw)*100));
+  const ampel = pct>=100?'green':pct>=60?'yellow':'red';
+
+  el.innerHTML += `
+    <h2 style="margin-top:18px">Cashflow-Kalender (Wochen)</h2>
+    ${weekRows||'<span class="muted" style="font-size:12px">Noch keine Wochen-Daten.</span>'}
+    <h2 style="margin-top:18px">ROI nach Monat</h2>
+    <div class="stat-line"><span class="label">Laufendes Kapital (aktiv)</span><span class="value">${fmtEUR(capital)}</span></div>
+    ${monthRows||'<span class="muted" style="font-size:12px">Noch keine Monats-ROIs.</span>'}
+    <h2 style="margin-top:18px">Gewinn/Woche Ziel</h2>
+    <div class="grid-fields"><div><label class="field-label">€ Gewinn / Woche</label><input id="goal-profit-week" type="number" min="0" step="10" value="${pw}" onchange="saveGoals()" /></div></div>
+    <div class="stat-line"><span class="label"><span class="ampel ${ampel}"></span>Diese Woche</span><span class="value">${fmtEUR(weekProfit)} · ${pct}%</span></div>
+    <div class="storage-bar" style="margin:6px 0 10px"><span style="width:${pct}%;background:${ampel==='green'?'var(--success)':ampel==='yellow'?'var(--gold)':'var(--danger)'}"></span></div>
+    <h2 style="margin-top:18px">Was als Nächstes einstellen?</h2>
+    <div class="next-list">${nextHtml}</div>
+  `;
+};
+const _saveGoals2 = saveGoals;
+saveGoals = function(){
+  const revenue=parseFloat(document.getElementById('goal-revenue')?.value)||0;
+  const profit=parseFloat(document.getElementById('goal-profit')?.value)||0;
+  const articlesWeek=parseFloat(document.getElementById('goal-articles-week')?.value)||0;
+  const profitWeek=parseFloat(document.getElementById('goal-profit-week')?.value)||0;
+  localStorage.setItem('preis-check-goals', JSON.stringify({ revenue, profit, articlesWeek, profitWeek }));
+  showToast('Ziele gespeichert');
+  renderStats();
+};
+
+// defects field in analyze prompt
+// inject into full prompt string
+// platform change applies fee
+document.addEventListener('change', (e)=>{
+  if(e.target && e.target.id==='f-platform'){
+    applyFeePreset(e.target.value);
+  }
+});
+
+// init fee preset + quick drop
+try{
+  applyFeePreset(document.getElementById('f-platform')?.value || 'Vinted');
+  const qd=document.getElementById('quick-dropzone');
+  if(qd){
+    qd.addEventListener('dragover',e=>{e.preventDefault(); qd.classList.add('drag');});
+    qd.addEventListener('dragleave',()=>qd.classList.remove('drag'));
+    qd.addEventListener('drop',e=>{e.preventDefault(); qd.classList.remove('drag'); if(e.dataTransfer.files[0]) handleQuickFile(e.dataTransfer.files[0]);});
+  }
+}catch(e){}
+
 updateStepProgress();
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbf319eca73ec7',t:'MTc4NDQ4NzQyMw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dc00490a313ec7',t:'MTc4NDQ4Nzk2Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
