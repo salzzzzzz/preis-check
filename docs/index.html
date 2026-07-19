@@ -193,7 +193,28 @@
   .inventory-card { border:1px solid var(--card-border); border-radius:8px; padding:11px; background:#1b1b18; }
   .inventory-card h3 { margin:0 0 6px; font-size:14px; }
   .inventory-card p { margin:4px 0; font-size:12px; color:var(--ink-muted); }
-  .inventory-actions { display:flex; gap:6px; margin-top:8px; }
+  .inventory-actions { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+  .status-quick { display:flex; gap:5px; flex-wrap:wrap; margin-top:8px; }
+  .status-chip {
+    border:1px solid var(--card-border); background:#161613; color:var(--ink-muted);
+    border-radius:999px; padding:5px 9px; font-size:11px; cursor:pointer; font-family:'Inter',sans-serif;
+  }
+  .status-chip:hover { border-color:var(--gold); color:var(--ink); }
+  .status-chip.active-geplant { border-color:#6b7280; color:#d1d5db; }
+  .status-chip.active-eingestellt { border-color:var(--gold); color:var(--gold); }
+  .status-chip.active-verkauft { border-color:var(--success); color:var(--success-text); }
+  .status-chip.active-archiviert { border-color:#8b5cf6; color:#c4b5fd; }
+  .status-chip.active-nicht { border-color:var(--danger); color:#f0a8a0; }
+  .batch-bar {
+    display:none; position:sticky; top:0; z-index:20; margin-bottom:12px;
+    background:rgba(36,36,32,.97); border:1px solid var(--gold); border-radius:10px; padding:10px 12px;
+  }
+  .batch-bar.open { display:block; }
+  .batch-row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  .batch-meta { font-size:12px; color:var(--ink-muted); }
+  .batch-meta b { color:var(--gold); }
+  .batch-actions { display:flex; gap:6px; flex-wrap:wrap; }
+  .modal .grid-fields { margin-top:8px; }
   .metric-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .metric { background:#161613; border:1px solid var(--card-border); border-radius:8px; padding:12px; }
   .metric strong { display:block; font:18px 'IBM Plex Mono',monospace; margin-top:5px; }
@@ -259,6 +280,21 @@
     Preise trägst du selbst ein. So bleibt das Tool schnell nutzbar, ohne gegen die Regeln der Plattformen zu verstoßen.
   </div>
 
+  <div class="batch-bar" id="batch-bar">
+    <div class="batch-row">
+      <div class="batch-meta" id="batch-meta"><b>Batch-Modus</b> · bereit</div>
+      <div class="batch-actions">
+        <button class="primary" id="batch-next-btn" onclick="batchSaveAndNext()">💾 Speichern &amp; Nächster</button>
+        <button class="ghost" onclick="batchSkip()">Überspringen</button>
+        <button class="ghost" onclick="batchExit(false)">Batch beenden</button>
+      </div>
+    </div>
+    <div class="storage-bar" style="margin-top:8px;"><span id="batch-progress-bar" style="width:0%;background:var(--gold);transition:width .25s ease;"></span></div>
+    <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;">
+      Tipp: Foto prüfen → ⚡ Alles generieren → EK eintragen → <b style="color:var(--ink);">Speichern &amp; Nächster</b>.
+    </div>
+  </div>
+
   <div class="panel">
     <h2>1 · Artikel erkennen</h2>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
@@ -269,8 +305,10 @@
     <div class="photo-actions">
       <button class="ghost" type="button" onclick="event.stopPropagation(); document.getElementById('file-input-add').click()">＋ Weitere Fotos</button>
       <button class="ghost" type="button" onclick="clearAllPhotos()">Alle Fotos löschen</button>
+      <button class="primary" type="button" onclick="event.stopPropagation(); document.getElementById('batch-file-input').click()">📦 Batch-Stapel starten</button>
       <span class="analyze-status" id="photo-count-status">0/8 Fotos</span>
       <input type="file" id="file-input-add" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files, true)" />
+      <input type="file" id="batch-file-input" accept="image/*" multiple style="display:none" onchange="startBatchFromFiles(this.files)" />
     </div>
     <div id="photo-strip" class="photo-strip"></div>
     <div class="analyze-row" style="flex-wrap:wrap;margin-top:10px;">
@@ -524,10 +562,13 @@ Era/Style: y2k vintage retro streetwear
 
 <!-- Inventar: lokale Browser-Datenbank -->
 <div id="inventory-view" class="view hidden">
-  <div class="top-row"><h1>Inventar</h1><span class="muted" style="font-size:12px;">lokal gespeichert</span></div>
+  <div class="top-row"><h1>Inventar</h1><span class="muted" style="font-size:12px;">lokal gespeichert · Status per Klick</span></div>
   <hr class="divider" />
   <div class="panel">
     <h2>Gespeicherte Artikel</h2>
+    <div style="font-size:12px;color:var(--ink-muted);margin-bottom:10px;">
+      Status direkt auf der Karte ändern: <b style="color:var(--ink);">Eingestellt</b>, <b style="color:var(--ink);">Verkauft</b> (fragt Preis + Plattform) oder <b style="color:var(--ink);">Archiv</b>.
+    </div>
     <div style="font-size:12px;color:var(--ink-muted);margin-bottom:10px;">Alle Einträge werden kostenlos in diesem Browser gespeichert. Die Bilder werden mitgespeichert.</div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">
       <button class="ghost" onclick="exportBackup()">⬇ Backup exportieren</button>
@@ -581,6 +622,33 @@ Era/Style: y2k vintage retro streetwear
   </div>
 </div>
 
+<div class="modal-overlay" id="sold-overlay">
+  <div class="modal">
+    <h3>Als verkauft markieren</h3>
+    <p id="sold-item-label">Artikel</p>
+    <div class="grid-fields">
+      <div>
+        <label class="field-label">Verkaufspreis (€)</label>
+        <input id="sold-price-input" type="number" min="0" step="0.01" placeholder="z.B. 59.00" />
+      </div>
+      <div>
+        <label class="field-label">Plattform</label>
+        <select id="sold-platform-input">
+          <option value="Vinted">Vinted</option>
+          <option value="eBay">eBay</option>
+          <option value="Kleinanzeigen">Kleinanzeigen</option>
+          <option value="Sonstiges">Sonstiges</option>
+        </select>
+      </div>
+    </div>
+    <div id="sold-modal-status" class="analyze-status" style="margin-top:8px;"></div>
+    <div class="modal-actions">
+      <button class="primary" onclick="confirmSoldStatus()">Verkauft speichern</button>
+      <button class="ghost" onclick="closeSoldModal()">Abbrechen</button>
+    </div>
+  </div>
+</div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
 <script>
@@ -597,6 +665,11 @@ const BACKUPS_KEY = 'preis-check-backups';
 let pendingImage = null;
 let pendingImages = [];
 let currentItemId = null;
+let soldModalItemId = null;
+let batchQueue = []; // Array of photo arrays (each item = 1+ photos)
+let batchIndex = 0;
+let batchActive = false;
+let batchAutoGenerate = true;
 let libraryImage = null;
 let prices = [];
 
@@ -2079,12 +2152,408 @@ function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer
 function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';if(document.getElementById('f-size'))document.getElementById('f-size').value=r.size||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}if(document.getElementById('generated-description')&&r.description)document.getElementById('generated-description').value=r.description;prices=r.prices||[];pendingImages=Array.isArray(r.photos)?r.photos.slice(0, MAX_PHOTOS):[];pendingImage=pendingImages[0]||null;if(document.getElementById('f-chest')&&r.chest)document.getElementById('f-chest').value=r.chest;if(document.getElementById('f-length')&&r.length)document.getElementById('f-length').value=r.length;if(document.getElementById('f-shoulder')&&r.shoulder)document.getElementById('f-shoulder').value=r.shoulder;if(document.getElementById('f-sleeve')&&r.sleeve)document.getElementById('f-sleeve').value=r.sleeve;renderPrices();syncPhotoUi();renderResearchLinks();calculate()}}catch(e){}}
 
 function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),color:(document.getElementById('f-color')?.value||'').trim(),era:(document.getElementById('f-era')?.value||'').trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0, MAX_PHOTOS),title:document.getElementById('generated-title')?.value||'',description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
-function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=currentRecord();if(!r.articleNo)r.articleNo=nextArticleNo();document.getElementById('f-article-no').value=r.articleNo;if(!r.name&&!r.brand&&!r.category){document.getElementById('save-status').textContent='Bitte zuerst Artikeldaten eintragen.';return}currentItemId=r.id;const l=inventoryData(),i=l.findIndex(x=>x.id===r.id);if(i>=0)l[i]=r;else l.unshift(r);saveInventoryData(l);localStorage.removeItem('preis-check-draft');if(supabaseClient)syncAllToCloud();document.getElementById('save-status').textContent='Gespeichert.';renderStats()}
-function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos.slice(0, MAX_PHOTOS):[];pendingImage=pendingImages[0]||null;renderPrices();syncPhotoUi();const ms=document.getElementById('measures-ai-status');if(ms){ms.textContent='';ms.style.color='';}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
-function deleteItem(id){createAutoBackup('Vor dem Löschen');saveInventoryData(inventoryData().filter(x=>x.id!==id));renderInventory();renderStats()}
-function renderInventory(){const e=document.getElementById('inventory-list'),all=inventoryData(),q=(document.getElementById('inventory-search')?.value||'').toLowerCase(),f=document.getElementById('inventory-filter')?.value||'',sort=document.getElementById('inventory-sort')?.value||'new';let l=all.filter(r=>(!q||[r.name,r.brand,r.category].join(' ').toLowerCase().includes(q))&&(!f||r.status===f));l.sort((a,b)=>sort==='name'?String(a.name||'').localeCompare(String(b.name||'')):sort==='profit'?((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0)):String(b.updated||'').localeCompare(String(a.updated||'')));if(!l.length){e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>';updateStorageInfo(all);return}e.innerHTML=l.map(r=>{const m=median(r.prices||[]),profit=(r.soldPrice||0)-(r.ek||0);const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';return `<div class="inventory-card">${img}<h3>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3><p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p><p>Status: <b>${escapeHtml(r.status||'geplant')}</b>${r.platform?' · '+escapeHtml(r.platform):''}</p><p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}<div class="inventory-actions"><button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button><button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button><button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button><button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button></div></div>`}).join('');updateStorageInfo(all)}
-function duplicateItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;const copy=JSON.parse(JSON.stringify(r));copy.id=Date.now().toString(36);delete copy.cloudId;copy.articleNo=nextArticleNo();copy.name=(copy.name||'Artikel')+' (Kopie)';copy.status='geplant';copy.soldPrice=0;copy.updated=new Date().toISOString();const l=inventoryData();l.unshift(copy);saveInventoryData(l);renderInventory();renderStats()}
-function archiveItem(id){const l=inventoryData(),r=l.find(x=>x.id===id);if(r){r.status='archiviert';r.updated=new Date().toISOString();saveInventoryData(l);renderInventory();renderStats()}}
+function saveCurrentItem(options = {}) {
+  const quiet = !!options.quiet;
+  createAutoBackup('Vor dem Speichern');
+  const r = currentRecord();
+  if (!r.articleNo) r.articleNo = nextArticleNo();
+  document.getElementById('f-article-no').value = r.articleNo;
+  if (!r.name && !r.brand && !r.category) {
+    document.getElementById('save-status').textContent = 'Bitte zuerst Artikeldaten eintragen.';
+    return false;
+  }
+  currentItemId = r.id;
+  const l = inventoryData();
+  const i = l.findIndex(x => x.id === r.id);
+  if (i >= 0) l[i] = r; else l.unshift(r);
+  saveInventoryData(l);
+  localStorage.removeItem('preis-check-draft');
+  if (supabaseClient) syncAllToCloud();
+  document.getElementById('save-status').textContent = quiet ? 'Gespeichert · nächster Artikel…' : 'Gespeichert.';
+  renderStats();
+  return true;
+}
+
+function loadItem(id) {
+  const r = inventoryData().find(x => x.id === id);
+  if (!r) return;
+  // Einzelbearbeitung: Batch pausieren, damit nichts überschrieben wird
+  if (batchActive) batchExit(true);
+  currentItemId = id;
+  document.getElementById('f-name').value = r.name || '';
+  document.getElementById('f-brand').value = r.brand || '';
+  document.getElementById('f-category').value = r.category || '';
+  document.getElementById('f-condition').value = r.condition || '';
+  document.getElementById('f-defects').value = r.defects || '';
+  if (document.getElementById('f-color')) document.getElementById('f-color').value = r.color || '';
+  if (document.getElementById('f-era')) document.getElementById('f-era').value = r.era || '';
+  document.getElementById('f-ek-total').value = r.ek || '';
+  document.getElementById('f-sold-price').value = r.soldPrice || '';
+  document.getElementById('f-article-no').value = r.articleNo || '';
+  document.getElementById('f-platform').value = r.platform || '';
+  document.getElementById('f-notes').value = r.notes || '';
+  document.getElementById('f-status').value = r.status || 'geplant';
+  document.getElementById('f-size').value = r.size || '';
+  document.getElementById('f-chest').value = r.chest || '';
+  document.getElementById('f-length').value = r.length || '';
+  document.getElementById('f-shoulder').value = r.shoulder || '';
+  document.getElementById('f-sleeve').value = r.sleeve || '';
+  document.getElementById('generated-description').value = r.description || '';
+  if (document.getElementById('generated-title')) {
+    document.getElementById('generated-title').value = r.title || '';
+    updateTitleCharCount();
+  }
+  prices = Array.isArray(r.prices) ? r.prices : [];
+  pendingImages = Array.isArray(r.photos) ? r.photos.slice(0, MAX_PHOTOS) : [];
+  pendingImage = pendingImages[0] || null;
+  renderPrices();
+  syncPhotoUi();
+  const ms = document.getElementById('measures-ai-status');
+  if (ms) { ms.textContent = ''; ms.style.color = ''; }
+  renderResearchLinks();
+  calculate();
+  switchView('check', document.querySelector('.nav-btn[data-view="check"]'));
+}
+
+function deleteItem(id) {
+  createAutoBackup('Vor dem Löschen');
+  saveInventoryData(inventoryData().filter(x => x.id !== id));
+  renderInventory();
+  renderStats();
+}
+
+function statusChipClass(status, chip) {
+  const s = status || 'geplant';
+  if (chip === 'geplant' && s === 'geplant') return 'status-chip active-geplant';
+  if (chip === 'eingestellt' && s === 'eingestellt') return 'status-chip active-eingestellt';
+  if (chip === 'verkauft' && s === 'verkauft') return 'status-chip active-verkauft';
+  if (chip === 'archiviert' && s === 'archiviert') return 'status-chip active-archiviert';
+  if (chip === 'nicht verkauft' && s === 'nicht verkauft') return 'status-chip active-nicht';
+  return 'status-chip';
+}
+
+function quickSetStatus(id, status) {
+  if (status === 'verkauft') {
+    openSoldModal(id);
+    return;
+  }
+  const l = inventoryData();
+  const r = l.find(x => x.id === id);
+  if (!r) return;
+  r.status = status;
+  r.updated = new Date().toISOString();
+  // Bei Nicht-Verkauf Preis optional behalten, Status klar setzen
+  saveInventoryData(l);
+  renderInventory();
+  renderStats();
+  // Wenn derselbe Artikel gerade offen ist: Feld syncen
+  if (currentItemId === id) {
+    const sel = document.getElementById('f-status');
+    if (sel) sel.value = status;
+  }
+}
+
+function openSoldModal(id) {
+  const r = inventoryData().find(x => x.id === id);
+  if (!r) return;
+  soldModalItemId = id;
+  const label = document.getElementById('sold-item-label');
+  if (label) label.textContent = [r.articleNo, r.name || r.brand || 'Artikel'].filter(Boolean).join(' · ');
+  const priceEl = document.getElementById('sold-price-input');
+  const platEl = document.getElementById('sold-platform-input');
+  const st = document.getElementById('sold-modal-status');
+  if (priceEl) {
+    // Vorschlag: vorhandener Verkaufspreis, sonst Marktpreis-Median
+    const m = median(r.prices || []);
+    priceEl.value = r.soldPrice > 0 ? r.soldPrice : (m != null ? Number(m.toFixed(2)) : '');
+    priceEl.onkeydown = (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); confirmSoldStatus(); } };
+  }
+  if (platEl) platEl.value = r.platform || 'Vinted';
+  if (st) st.textContent = '';
+  document.getElementById('sold-overlay').classList.add('open');
+  setTimeout(() => { try { priceEl?.focus(); priceEl?.select(); } catch (e) {} }, 50);
+}
+
+function closeSoldModal() {
+  soldModalItemId = null;
+  document.getElementById('sold-overlay').classList.remove('open');
+}
+
+function confirmSoldStatus() {
+  if (!soldModalItemId) return;
+  const price = parseFloat(document.getElementById('sold-price-input').value);
+  const platform = document.getElementById('sold-platform-input').value || '';
+  const st = document.getElementById('sold-modal-status');
+  if (!Number.isFinite(price) || price <= 0) {
+    if (st) st.textContent = 'Bitte einen gültigen Verkaufspreis eintragen.';
+    return;
+  }
+  const l = inventoryData();
+  const r = l.find(x => x.id === soldModalItemId);
+  if (!r) { closeSoldModal(); return; }
+  r.status = 'verkauft';
+  r.soldPrice = price;
+  r.platform = platform;
+  r.updated = new Date().toISOString();
+  saveInventoryData(l);
+  if (currentItemId === soldModalItemId) {
+    document.getElementById('f-status').value = 'verkauft';
+    document.getElementById('f-sold-price').value = price;
+    document.getElementById('f-platform').value = platform;
+  }
+  closeSoldModal();
+  renderInventory();
+  renderStats();
+}
+
+function renderInventory() {
+  const e = document.getElementById('inventory-list');
+  const all = inventoryData();
+  const q = (document.getElementById('inventory-search')?.value || '').toLowerCase();
+  const f = document.getElementById('inventory-filter')?.value || '';
+  const sort = document.getElementById('inventory-sort')?.value || 'new';
+  let l = all.filter(r =>
+    (!q || [r.name, r.brand, r.category, r.articleNo].join(' ').toLowerCase().includes(q)) &&
+    (!f || r.status === f)
+  );
+  l.sort((a, b) =>
+    sort === 'name' ? String(a.name || '').localeCompare(String(b.name || '')) :
+    sort === 'profit' ? ((b.soldPrice || 0) - (b.ek || 0)) - ((a.soldPrice || 0) - (a.ek || 0)) :
+    String(b.updated || '').localeCompare(String(a.updated || ''))
+  );
+  if (!l.length) {
+    e.innerHTML = '<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>';
+    updateStorageInfo(all);
+    return;
+  }
+  e.innerHTML = l.map(r => {
+    const m = median(r.prices || []);
+    const profit = (r.soldPrice || 0) - (r.ek || 0);
+    const pi = Number.isInteger(r.mainPhoto) && r.photos?.[r.mainPhoto] ? r.mainPhoto : 0;
+    const img = r.photos && r.photos[pi]
+      ? `<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`
+      : '';
+    const st = r.status || 'geplant';
+    return `<div class="inventory-card">${img}
+      <h3>${escapeHtml(r.articleNo || '')} ${escapeHtml(r.name || r.brand || 'Unbenannter Artikel')}</h3>
+      <p>${escapeHtml([r.brand, r.category, r.condition].filter(Boolean).join(' · '))}</p>
+      <p>Status: <b>${escapeHtml(st)}</b>${r.platform ? ' · ' + escapeHtml(r.platform) : ''}</p>
+      <p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>
+      ${r.soldPrice ? `<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>` : ''}
+      <div class="status-quick">
+        <button type="button" class="${statusChipClass(st, 'eingestellt')}" onclick="quickSetStatus('${r.id}','eingestellt')">Eingestellt</button>
+        <button type="button" class="${statusChipClass(st, 'verkauft')}" onclick="quickSetStatus('${r.id}','verkauft')">Verkauft</button>
+        <button type="button" class="${statusChipClass(st, 'archiviert')}" onclick="quickSetStatus('${r.id}','archiviert')">Archiv</button>
+        <button type="button" class="${statusChipClass(st, 'geplant')}" onclick="quickSetStatus('${r.id}','geplant')">Geplant</button>
+      </div>
+      <div class="inventory-actions">
+        <button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button>
+        <button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button>
+        <button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button>
+        <button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button>
+      </div>
+    </div>`;
+  }).join('');
+  updateStorageInfo(all);
+}
+
+function duplicateItem(id) {
+  const r = inventoryData().find(x => x.id === id);
+  if (!r) return;
+  const copy = JSON.parse(JSON.stringify(r));
+  copy.id = Date.now().toString(36);
+  delete copy.cloudId;
+  copy.articleNo = nextArticleNo();
+  copy.name = (copy.name || 'Artikel') + ' (Kopie)';
+  copy.status = 'geplant';
+  copy.soldPrice = 0;
+  copy.updated = new Date().toISOString();
+  const l = inventoryData();
+  l.unshift(copy);
+  saveInventoryData(l);
+  renderInventory();
+  renderStats();
+}
+
+function archiveItem(id) {
+  quickSetStatus(id, 'archiviert');
+}
+
+/* ===================== Batch-Modus ===================== */
+function updateBatchUi() {
+  const bar = document.getElementById('batch-bar');
+  const meta = document.getElementById('batch-meta');
+  const prog = document.getElementById('batch-progress-bar');
+  const nextBtn = document.getElementById('batch-next-btn');
+  if (!bar) return;
+  if (!batchActive || !batchQueue.length) {
+    bar.classList.remove('open');
+    return;
+  }
+  bar.classList.add('open');
+  const total = batchQueue.length;
+  const cur = Math.min(batchIndex + 1, total);
+  const pct = Math.round((batchIndex / total) * 100);
+  if (meta) {
+    meta.innerHTML = `<b>Batch-Modus</b> · Artikel <b>${cur}</b> / <b>${total}</b>` +
+      (batchIndex < total ? ` · noch ${total - batchIndex} offen` : ' · fertig');
+  }
+  if (prog) prog.style.width = Math.min(100, pct) + '%';
+  if (nextBtn) nextBtn.textContent = batchIndex >= total - 1 ? '💾 Speichern & Batch beenden' : '💾 Speichern & Nächster';
+}
+
+function clearFormForBatch() {
+  currentItemId = null;
+  prices = [];
+  ['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title','f-notes'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('f-condition').value = '';
+  document.getElementById('f-platform').value = '';
+  document.getElementById('f-status').value = 'geplant';
+  document.getElementById('f-article-no').value = nextArticleNo();
+  const ts = document.getElementById('title-status'); if (ts) ts.textContent = '';
+  const ds = document.getElementById('desc-status'); if (ds) ds.textContent = '';
+  const as = document.getElementById('analyze-status'); if (as) as.textContent = '';
+  const ms = document.getElementById('measures-ai-status'); if (ms) { ms.textContent = ''; ms.style.color = ''; }
+  const ss = document.getElementById('save-status'); if (ss) ss.textContent = '';
+  updateTitleCharCount();
+  renderPrices();
+  renderResearchLinks();
+  calculate();
+}
+
+async function loadBatchItem(index) {
+  if (index < 0 || index >= batchQueue.length) {
+    batchExit(false);
+    return;
+  }
+  batchIndex = index;
+  clearFormForBatch();
+  pendingImages = (batchQueue[index] || []).slice(0, MAX_PHOTOS);
+  pendingImage = pendingImages[0] || null;
+  syncPhotoUi();
+  updateBatchUi();
+  switchView('check', document.querySelector('.nav-btn[data-view="check"]'));
+  const as = document.getElementById('analyze-status');
+  if (as) as.textContent = `Batch ${batchIndex + 1}/${batchQueue.length} geladen` + (batchAutoGenerate ? ' · starte Auto-Generierung…' : '');
+  if (batchAutoGenerate && pendingImages.length && getApiKey()) {
+    try {
+      await generateAllListing();
+    } catch (e) {
+      if (as) as.textContent = 'Auto-Generierung fehlgeschlagen: ' + (e.message || 'unbekannt');
+    }
+  } else if (batchAutoGenerate && !getApiKey()) {
+    openSettings();
+  }
+}
+
+async function startBatchFromFiles(fileList) {
+  const files = Array.from(fileList || []).filter(f => f && String(f.type || '').startsWith('image/'));
+  const input = document.getElementById('batch-file-input');
+  if (input) input.value = '';
+  if (!files.length) {
+    alert('Keine Bilder ausgewählt.');
+    return;
+  }
+  // Jede Datei = ein Artikel (typischer Wochenend-Stapel). Mehrere Fotos pro Artikel: im Einzelmodus anhängen.
+  const queue = [];
+  for (const file of files.slice(0, 40)) {
+    try {
+      const dataUrl = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const resized = await resizeImage(dataUrl, 900, 0.8);
+      queue.push([resized]);
+    } catch (e) {
+      console.warn('Batch-Foto übersprungen', e);
+    }
+  }
+  if (!queue.length) {
+    alert('Fotos konnten nicht geladen werden.');
+    return;
+  }
+  batchQueue = queue;
+  batchIndex = 0;
+  batchActive = true;
+  batchAutoGenerate = true;
+  updateBatchUi();
+  await loadBatchItem(0);
+}
+
+function batchExit(silent = false) {
+  const had = batchActive;
+  batchActive = false;
+  batchQueue = [];
+  batchIndex = 0;
+  updateBatchUi();
+  if (!silent && had) {
+    const as = document.getElementById('analyze-status');
+    if (as) as.textContent = 'Batch beendet.';
+  }
+}
+
+function batchSkip() {
+  if (!batchActive) return;
+  if (batchIndex >= batchQueue.length - 1) {
+    batchExit(false);
+    alert('Batch fertig – letzter Artikel übersprungen.');
+    return;
+  }
+  loadBatchItem(batchIndex + 1);
+}
+
+async function batchSaveAndNext() {
+  if (!batchActive) {
+    saveCurrentItem();
+    return;
+  }
+  // Standard: als „geplant“ speichern, falls noch kein Status gesetzt
+  if (!document.getElementById('f-status').value) {
+    document.getElementById('f-status').value = 'geplant';
+  }
+  const ok = saveCurrentItem({ quiet: true });
+  if (!ok) return;
+
+  if (batchIndex >= batchQueue.length - 1) {
+    batchExit(false);
+    const as = document.getElementById('analyze-status');
+    if (as) as.textContent = '✅ Batch abgeschlossen. Alle Artikel gespeichert.';
+    // Inventar zeigen
+    switchView('inventory', document.querySelector('.nav-btn[data-view="inventory"]'));
+    renderInventory();
+    return;
+  }
+  await loadBatchItem(batchIndex + 1);
+}
+
+function newItem() {
+  if (batchActive && !confirm('Batch läuft noch. Wirklich neuen leeren Artikel starten und Batch beenden?')) return;
+  if (batchActive) batchExit(true);
+  currentItemId = null;
+  prices = [];
+  pendingImages = [];
+  pendingImage = null;
+  ['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  document.getElementById('f-condition').value = '';
+  document.getElementById('f-platform').value = '';
+  const ts = document.getElementById('title-status'); if (ts) ts.textContent = '';
+  const ds = document.getElementById('desc-status'); if (ds) ds.textContent = '';
+  const as = document.getElementById('analyze-status'); if (as) as.textContent = '';
+  const ms = document.getElementById('measures-ai-status'); if (ms) { ms.textContent = ''; ms.style.color = ''; }
+  updateTitleCharCount();
+  renderPrices();
+  syncPhotoUi();
+  const prog = document.getElementById('all-generate-progress');
+  if (prog) prog.style.display = 'none';
+}
 function setMainPhoto(id){const l=inventoryData(),r=l.find(x=>x.id===id);if(!r||!r.photos?.length)return;const n=prompt('Nummer des Hauptbilds (1–'+r.photos.length+')','1'),i=parseInt(n,10)-1;if(i>=0&&i<r.photos.length){r.mainPhoto=i;r.updated=new Date().toISOString();saveInventoryData(l);renderInventory()}}
 function updateStorageInfo(list){const bytes=new Blob([JSON.stringify(list)]).size,mb=(bytes/1024/1024).toFixed(2),pct=Math.min(100,bytes/5000000*100),el=document.getElementById('storage-info');if(el)el.innerHTML=`Lokaler Speicher: ca. ${mb} MB <div class="storage-bar"><span style="width:${pct}%"></span></div>`}
 
@@ -2105,7 +2574,6 @@ function generateInvoice(){saveInvoiceSettings();const id=document.getElementByI
 function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
 function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
 
-function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';const ts=document.getElementById('title-status');if(ts)ts.textContent='';const ds=document.getElementById('desc-status');if(ds)ds.textContent='';const as=document.getElementById('analyze-status');if(as)as.textContent='';const ms=document.getElementById('measures-ai-status');if(ms){ms.textContent='';ms.style.color='';}updateTitleCharCount();renderPrices();syncPhotoUi();const prog=document.getElementById('all-generate-progress');if(prog)prog.style.display='none'}
 function learnedRange(brand,category,condition){const b=(brand||'').toLowerCase(),c=(category||'').toLowerCase(),co=(condition||'').toLowerCase();const list=loadCorrections().map(x=>{const ib=(x.brand||'').toLowerCase(),ic=(x.category||'').toLowerCase(),io=(x.condition||'').toLowerCase();let score=0;if(b&&ib===b)score+=5;else if(b&&ib.includes(b)||b&&ib&&b.includes(ib))score+=3;if(c&&ic===c)score+=5;else if(c&&ic.includes(c)||c&&ic&&c.includes(ic))score+=3;if(co&&io===co)score+=2;return {x,score}}).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score).slice(0,12);if(!list.length)return null;const weights=list.map(x=>x.score),sum=weights.reduce((a,v)=>a+v,0);return {low:list.reduce((a,v,i)=>a+v.x.low*weights[i],0)/sum,high:list.reduce((a,v,i)=>a+(v.x.high||v.x.low)*weights[i],0)/sum,count:list.length}}
 function renderLearningInsights(){const e=document.getElementById('learning-insights');if(!e)return;const l=loadCorrections(),values=l.flatMap(x=>[Number(x.low)||0,Number(x.high)||Number(x.low)||0]).filter(Boolean),brands=new Set(l.map(x=>x.brand).filter(Boolean)),cats=new Set(l.map(x=>x.category).filter(Boolean));e.innerHTML=`<div class="metric"><span class="muted">Preisreferenzen</span><strong>${l.length}</strong></div><div class="metric"><span class="muted">Marken gelernt</span><strong>${brands.size}</strong></div><div class="metric"><span class="muted">Kategorien gelernt</span><strong>${cats.size}</strong></div><div class="metric"><span class="muted">Durchschnittliche Range-Mitte</span><strong>${values.length?fmtEUR(values.reduce((a,v)=>a+v,0)/values.length):'–'}</strong></div>`}
 function localFallbackEstimate(){const r=learnedRange(document.getElementById('f-brand').value,document.getElementById('f-category').value,document.getElementById('f-condition').value);if(!r)return false;prices=prices.filter(p=>p.source!=='ai');prices.push({value:r.low,source:'ai'},{value:r.high,source:'ai'});renderPrices();calculate();return true}
@@ -2241,5 +2709,5 @@ if (titleInput) {
 }
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbc2ef1b3807f0',t:'MTc4NDQ4NTQ1MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbcb37ffab9284',t:'MTc4NDQ4NTc4OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
