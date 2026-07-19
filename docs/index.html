@@ -540,7 +540,7 @@ Era/Style: y2k vintage retro streetwear
       Groq: <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="color:var(--gold);">console.groq.com/keys</a>
     </p>
     <label class="field-label" style="margin-top:8px;">KI-Anbieter</label>
-    <select id="provider-input" onchange="toggleProviderKey()"><option value="gemini">Gemini (direkt)</option><option value="groq">Groq · Llama 4 Scout (direkt)</option></select>
+    <select id="provider-input" onchange="toggleProviderKey()"><option value="gemini">Gemini (direkt)</option><option value="groq">Groq · Qwen Vision / GPT-OSS (direkt)</option></select>
     <input id="api-key-input" placeholder="Gemini API-Key: AIzaSy..." style="margin-top:8px;" />
     <input id="groq-key-input" placeholder="Groq API-Key: gsk_..." style="margin-top:8px;display:none;" />
     <div id="settings-test-status" class="analyze-status" style="margin-top:10px;min-height:18px;"></div>
@@ -993,23 +993,17 @@ async function generateTitle() {
 }
 
 // KI läuft direkt über lokalen API-Key (Supabase ai-proxy liefert 401 und wird nicht genutzt).
-async function groqDirectRequest(key, prompt, images = []) {
-  const apiKey = key || localStorage.getItem(GROQKEY_KEY) || '';
-  if (!apiKey) throw new Error('Kein Groq API-Key hinterlegt. Öffne ⚙️ → Anbieter „Groq“ → Key von console.groq.com eintragen und speichern.');
+// Aktuelle Groq-Modelle (Stand 2026): Vision = qwen/qwen3.6-27b
+// Text-Fallbacks, falls ein Modell deprecated/gesperrt ist.
+const GROQ_VISION_MODELS = ['qwen/qwen3.6-27b'];
+const GROQ_TEXT_MODELS = [
+  'openai/gpt-oss-120b',
+  'openai/gpt-oss-20b',
+  'llama-3.3-70b-versatile',
+  'llama-3.1-8b-instant'
+];
 
-  const hasImages = Array.isArray(images) && images.length > 0;
-  // Vision-Modell für Fotos, Textmodell sonst
-  const model = hasImages ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile';
-
-  const userContent = [{ type: 'text', text: prompt }];
-  if (hasImages) {
-    images.slice(0, 3).forEach(src => {
-      if (!src) return;
-      const url = String(src).startsWith('data:') ? src : ('data:image/jpeg;base64,' + src);
-      userContent.push({ type: 'image_url', image_url: { url } });
-    });
-  }
-
+async function groqChatOnce(apiKey, model, messages, maxTokens = 2048) {
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -1019,47 +1013,77 @@ async function groqDirectRequest(key, prompt, images = []) {
     body: JSON.stringify({
       model,
       temperature: 0.4,
-      max_tokens: 2048,
-      messages: [
-        { role: 'system', content: 'Du hilfst bei deutschem Secondhand-/Vinted-Verkauf. Antworte präzise und im gewünschten Format.' },
-        { role: 'user', content: hasImages ? userContent : prompt }
-      ]
+      max_tokens: maxTokens,
+      messages
     })
   });
-
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = body?.error?.message || body?.message || ('Groq HTTP ' + res.status);
-    if (res.status === 401 || /invalid.*api.?key|incorrect api key/i.test(msg)) {
-      throw new Error('Groq API-Key ungültig. Bitte unter ⚙️ einen gültigen Key von console.groq.com speichern.');
-    }
-    if (res.status === 429 || /rate limit/i.test(msg)) throw new Error('Groq Rate-Limit erreicht. Bitte 1–2 Minuten warten.');
-    if (/model|decommissioned|not found/i.test(msg)) {
-      // Fallback-Modell ohne Vision
-      if (hasImages) {
-        const res2 = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + apiKey },
-          body: JSON.stringify({
-            model: 'llama-3.3-70b-versatile',
-            temperature: 0.4,
-            max_tokens: 2048,
-            messages: [
-              { role: 'system', content: 'Du hilfst bei deutschem Secondhand-/Vinted-Verkauf. Antworte präzise und im gewünschten Format. (Kein Bild verfügbar – nutze die Textdaten.)' },
-              { role: 'user', content: prompt }
-            ]
-          })
-        });
-        const body2 = await res2.json().catch(() => ({}));
-        if (!res2.ok) throw new Error(body2?.error?.message || msg);
-        return body2?.choices?.[0]?.message?.content || '';
-      }
-    }
-    throw new Error(msg);
+  return { res, body, text: body?.choices?.[0]?.message?.content || '' };
+}
+
+async function groqDirectRequest(key, prompt, images = []) {
+  const apiKey = key || localStorage.getItem(GROQKEY_KEY) || '';
+  if (!apiKey) {
+    throw new Error('Kein Groq API-Key hinterlegt. Öffne ⚙️ → Anbieter „Groq“ → Key von console.groq.com/keys eintragen und speichern.');
   }
-  const text = body?.choices?.[0]?.message?.content || '';
-  if (!text) throw new Error('Leere Antwort von Groq.');
-  return text;
+
+  const hasImages = Array.isArray(images) && images.length > 0;
+  const system = 'Du hilfst bei deutschem Secondhand-/Vinted-Verkauf. Antworte präzise und im gewünschten Format.';
+
+  let userContent;
+  if (hasImages) {
+    userContent = [{ type: 'text', text: prompt }];
+    images.slice(0, 3).forEach(src => {
+      if (!src) return;
+      const url = String(src).startsWith('data:') ? src : ('data:image/jpeg;base64,' + src);
+      userContent.push({ type: 'image_url', image_url: { url } });
+    });
+  } else {
+    userContent = prompt;
+  }
+
+  // Mit Bild: zuerst Vision-Modelle, dann Text-Fallback ohne Bild
+  const modelQueue = hasImages
+    ? [...GROQ_VISION_MODELS, ...GROQ_TEXT_MODELS]
+    : [...GROQ_TEXT_MODELS];
+
+  let lastErr = null;
+  for (let i = 0; i < modelQueue.length; i++) {
+    const model = modelQueue[i];
+    const isVisionModel = GROQ_VISION_MODELS.includes(model);
+    // Text-Fallback: keine Bilder mitschicken (sonst lehnen reine Textmodelle ab)
+    const content = (hasImages && isVisionModel) ? userContent : prompt;
+    const messages = [
+      { role: 'system', content: system + ((hasImages && !isVisionModel) ? ' (Kein Bild – nutze die Textdaten im Prompt.)' : '') },
+      { role: 'user', content }
+    ];
+    try {
+      const { res, body, text } = await groqChatOnce(apiKey, model, messages);
+      if (res.ok && text) return text;
+
+      const msg = body?.error?.message || body?.message || ('Groq HTTP ' + res.status);
+      lastErr = msg;
+
+      // Hard fail: Key falsch
+      if (res.status === 401 || /invalid.*api.?key|incorrect api key|unauthorized/i.test(msg)) {
+        throw new Error('Groq API-Key ungültig. Bitte unter ⚙️ einen neuen Key von console.groq.com/keys speichern.');
+      }
+      // Rate limit: nicht alle Modelle durchprobieren
+      if (res.status === 429 || /rate limit/i.test(msg)) {
+        throw new Error('Groq Rate-Limit erreicht. Bitte 1–2 Minuten warten und erneut versuchen.');
+      }
+      // Modell fehlt/deprecated → nächstes Modell
+      if (res.status === 400 || res.status === 404 || /does not exist|decommissioned|not found|not have access|model/i.test(msg)) {
+        continue;
+      }
+      // anderer Fehler → trotzdem nächstes Modell versuchen
+      continue;
+    } catch (e) {
+      if (/API-Key ungültig|Rate-Limit/i.test(e.message || '')) throw e;
+      lastErr = e.message || String(e);
+    }
+  }
+  throw new Error(lastErr || 'Groq-Anfrage fehlgeschlagen (kein verfügbares Modell).');
 }
 
 async function geminiDirectRequest(key, prompt, images = []) {
@@ -1615,5 +1639,5 @@ if (titleInput) {
 }
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dba4adb8f67c50',t:'MTc4NDQ4NDIxMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dba874eb587c50',t:'MTc4NDQ4NDM2NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
