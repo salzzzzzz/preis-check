@@ -438,10 +438,6 @@
 
   <div class="panel">
     <h2>6 · Verkaufsbeschreibung</h2>
-    <div style="font-size:11px; color:var(--ink-muted); margin-bottom:8px;">
-      Die Beschreibung wird immer im festgelegten Vinted-Stil erstellt. Der Block <b style="color:var(--ink);">🖋️ DETAILS</b> folgt fest diesem Muster:
-      Headline mit „🔥 Original …“, danach konkrete Bulletpoints und als letzte Zeile der Era/Style (z.B. Vintage / Casual / Clean Fit Style).
-    </div>
     <h2 style="margin-top:16px;">Größe &amp; Maße</h2>
     <div style="font-size:11px;color:var(--ink-muted);margin-bottom:6px;">
       Werden bei der Foto-Analyse automatisch befüllt, wenn Etikett/Maße auf den Bildern erkennbar sind.
@@ -460,28 +456,14 @@
     <textarea id="style-template" style="display:none"></textarea>
 
     <h2 style="margin-top:16px;">Verkaufstitel</h2>
-    <div style="font-size:11px;color:var(--ink-muted);margin-bottom:8px;">
-      Strukturierter SEO-Titel mit Marke, Kategorie, Farbe, Größe und Era/Style – mindestens 50 Wörter, per KI oder lokal.
-      Format immer: <b style="color:var(--ink);">Marke · Kategorie · Farbe · Größe · Era/Style</b> plus ausführlicher Fließtext.
-    </div>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
       <button class="ghost" onclick="generateTitle()" id="title-btn">Titel generieren</button>
       <button class="ghost" onclick="copyTitle()">Kopieren</button>
       <span class="analyze-status" id="title-status"></span>
     </div>
-    <textarea id="generated-title" rows="8" placeholder="Marke: Fred Perry
-
-Kategorie: Quarter Zip Sweatshirt
-
-Farbe: Navy
-
-Größe: M
-
-Era/Style: y2k vintage retro streetwear
-
-…" style="width:100%;background:#161613;border:1px solid var(--card-border);border-radius:6px;padding:8px 10px;color:var(--ink);font-size:13px;font-family:'Inter',sans-serif;margin-bottom:6px;resize:vertical;"></textarea>
+    <input id="generated-title" type="text" maxlength="120" placeholder="Fred Perry Vintage Polo Shirt Gr. S Khaki im retro y2k streetwear style" style="width:100%;margin-bottom:6px;" />
     <div style="font-size:11px;color:var(--ink-muted);margin-bottom:12px;">
-      <span id="title-word-count">0</span> Wörter (min. 50) · <span id="title-char-count">0</span> Zeichen
+      <span id="title-char-count">0</span> Zeichen
     </div>
 
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
@@ -899,48 +881,50 @@ function getTitleFields() {
   const size = document.getElementById('f-size').value.trim();
   const era = (document.getElementById('f-era')?.value || '').trim() || 'y2k vintage retro streetwear';
   const condition = document.getElementById('f-condition').value.trim();
-  const defects = document.getElementById('f-defects').value.trim();
   // Kategorie aus Artikelname ableiten, falls leer
   if (!category && name) {
     category = brand && name.toLowerCase().startsWith(brand.toLowerCase())
       ? name.slice(brand.length).trim() || name
       : name;
   }
-  return { name, brand, category, color, size, era, condition, defects };
+  // Kategorie ohne doppelte Marke
+  if (category && brand && category.toLowerCase().startsWith(brand.toLowerCase())) {
+    category = category.slice(brand.length).trim() || category;
+  }
+  return { name, brand, category, color, size, era, condition };
 }
 
-function buildTitleHeader(fields) {
-  const f = fields || getTitleFields();
-  return [
-    'Marke: ' + (f.brand || 'nicht angegeben'),
-    '',
-    'Kategorie: ' + (f.category || f.name || 'nicht angegeben'),
-    '',
-    'Farbe: ' + (f.color || 'siehe Bilder'),
-    '',
-    'Größe: ' + (f.size || 'nicht angegeben'),
-    '',
-    'Era/Style: ' + (f.era || 'y2k vintage retro streetwear'),
-    ''
-  ].join('\n');
+function formatEraForTitle(era) {
+  const raw = String(era || 'y2k vintage retro streetwear').trim().toLowerCase();
+  // "im ... style" nicht doppelt
+  let s = raw.replace(/^im\s+/i, '').replace(/\s+style\s*$/i, '').trim();
+  // Mehrfach-Leerzeichen
+  s = s.replace(/[\/|,]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // sinnvolle Reihenfolge: vintage/retro/y2k/streetwear falls vorhanden
+  const tokens = s.split(' ').filter(Boolean);
+  const order = ['vintage', 'retro', 'y2k', 'streetwear', 'casual', 'clean'];
+  const seen = new Set();
+  const sorted = [];
+  order.forEach(o => {
+    const hit = tokens.find(t => t === o || t.replace(/[^a-z0-9]/g, '') === o);
+    if (hit && !seen.has(hit)) { seen.add(hit); sorted.push(hit); }
+  });
+  tokens.forEach(t => { if (!seen.has(t)) { seen.add(t); sorted.push(t); } });
+  return (sorted.join(' ') || 'y2k vintage retro streetwear');
 }
 
 function buildTitlePrompt() {
   const f = getTitleFields();
-  return 'Erstelle einen ausführlichen deutschen Vinted-/Secondhand-Verkaufstitel für folgenden Artikel. ' +
-    'Der Titel MUSS mindestens 50 Wörter haben (besser 55–80 Wörter). ' +
+  return 'Erstelle einen kurzen, einzeiligen deutschen Vinted-Verkaufstitel. ' +
+    'Beispielstil: "Fred Perry Vintage Polo Shirt Gr. S Khaki im retro y2k streetwear style". ' +
     'Artikeldaten: Name=' + (f.name || '–') + ', Marke=' + (f.brand || '–') + ', Kategorie=' + (f.category || '–') +
     ', Farbe=' + (f.color || 'nicht angegeben') + ', Größe=' + (f.size || 'nicht angegeben') +
-    ', Era/Style=' + (f.era || 'y2k vintage retro streetwear') +
-    ', Zustand=' + (f.condition || 'nicht angegeben') +
-    (f.defects && !/^keine\.?$/i.test(f.defects) ? (', Hinweise=' + f.defects) : '') + '. ' +
-    'Antworte ausschließlich als JSON-Objekt ohne Markdown mit dem Feld title. ' +
-    'Das Feld title muss GENAU dieses Format haben (mit Leerzeilen zwischen den Kopfzeilen):\\n\\n' +
-    'Marke: ...\\n\\nKategorie: ...\\n\\nFarbe: ...\\n\\nGröße: ...\\n\\nEra/Style: ...\\n\\n' +
-    'Danach folgt ein durchgehender Fließtext auf Deutsch mit mindestens 50 Wörtern insgesamt im gesamten title-Feld. ' +
-    'Der Fließtext soll Marke, Kategorie, Farbe, Größe, Era/Style, Passform, Einsatz (Alltag, Casual, Streetwear), ' +
-    'Suchbegriffe und Zustand natürlich einbauen. Keine Emojis, keine Hashtags, keine Preisangaben, keine erfundenen Fakten. ' +
-    'Wenn Farbe unbekannt ist, schreibe „siehe Bilder“. Era/Style standardmäßig mit y2k vintage retro streetwear, falls nichts anderes passt.';
+    ', Era/Style=' + (f.era || 'y2k vintage retro streetwear') + '. ' +
+    'Regeln: GENAU eine Zeile, ideal 45–90 Zeichen, max. 100 Zeichen. ' +
+    'MUSS enthalten: Marke, Kategorie/Modell, Farbe (wenn bekannt), Era/Style. Größe als "Gr. X" wenn vorhanden. ' +
+    'Format-Idee: "[Marke] [Kategorie] Gr. [Größe] [Farbe] im [era/style] style". ' +
+    'Keine Emojis, keine Hashtags, keine Anführungszeichen, keine Preise, keine Absätze. ' +
+    'Erfinde keine Details. Antworte ausschließlich als JSON-Objekt ohne Markdown mit dem Feld title.';
 }
 
 function normalizeGeneratedTitle(text) {
@@ -960,52 +944,63 @@ function normalizeGeneratedTitle(text) {
       } catch (e2) { /* keep t */ }
     }
   }
-  t = t.replace(/^title\s*[:=]\s*/i, '').replace(/^["'„“”]+|["'„“”]+$/g, '').trim();
-  // Sicherstellen, dass der strukturierte Header vorhanden ist
-  if (!/^Marke\s*:/im.test(t)) {
-    t = buildTitleHeader() + '\n' + t;
-  } else {
-    // Header-Felder mit aktuellen Formulardaten auffrischen, falls KI sie weglässt
-    const f = getTitleFields();
-    const ensureLine = (label, value) => {
-      const re = new RegExp('^' + label + '\\s*:.*$', 'im');
-      if (re.test(t)) t = t.replace(re, label + ': ' + value);
-      else t = label + ': ' + value + '\n\n' + t;
-    };
-    ensureLine('Marke', f.brand || 'nicht angegeben');
-    ensureLine('Kategorie', f.category || f.name || 'nicht angegeben');
-    ensureLine('Farbe', f.color || 'siehe Bilder');
-    ensureLine('Größe', f.size || 'nicht angegeben');
-    ensureLine('Era/Style', f.era || 'y2k vintage retro streetwear');
+  t = t.replace(/^title\s*[:=]\s*/i, '')
+    .replace(/^["'„“”]+|["'„“”]+$/g, '')
+    .replace(/#\w+/g, '')
+    .replace(/\s*\n+\s*/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  // Altes Mehrzeilen-Format "Marke: …" in Einzeiler umwandeln
+  if (/^Marke\s*:/i.test(t) || /Kategorie\s*:/i.test(t)) {
+    return generateLocalTitle();
   }
-  // Auf mind. 50 Wörter auffüllen, falls nötig
-  if (countWords(t) < 50) {
-    const local = generateLocalTitle();
-    // Wenn KI-Text zu kurz: lokalen Langtitel nehmen
-    if (countWords(local) >= countWords(t)) t = local;
+
+  // Pflichtteile nachziehen, falls KI etwas Wichtiges weglässt
+  const f = getTitleFields();
+  const lower = t.toLowerCase();
+  if (f.brand && !lower.includes(f.brand.toLowerCase())) {
+    t = f.brand + ' ' + t;
   }
-  return t.replace(/\n{3,}/g, '\n\n').trim();
+  if (f.color && f.color !== 'siehe Bilder' && !lower.includes(f.color.toLowerCase())) {
+    t = t.replace(/\s+im\s+/i, ' ' + f.color + ' im ');
+    if (!t.toLowerCase().includes(f.color.toLowerCase())) t = t + ' ' + f.color;
+  }
+  const era = formatEraForTitle(f.era);
+  if (era && !/style/i.test(t)) {
+    t = t.replace(/[.\s]+$/, '') + ' im ' + era + ' style';
+  }
+
+  t = t.replace(/\s+/g, ' ').trim();
+  if (t.length > 100) t = t.slice(0, 97).replace(/\s+\S*$/, '').trim();
+  return t;
 }
 
 function generateLocalTitle() {
   const f = getTitleFields();
-  const brand = f.brand || 'Marke';
-  const category = f.category || f.name || 'Artikel';
-  const color = f.color || 'siehe Bilder';
-  const size = f.size || 'nicht angegeben';
-  const era = f.era || 'y2k vintage retro streetwear';
-  const condition = f.condition || 'guter Zustand';
-  const itemLabel = [f.brand, category].filter(Boolean).join(' ') || category;
+  const brand = f.brand || '';
+  let category = f.category || f.name || 'Artikel';
+  // Doppelte Marke im Kategorie-/Namensteil vermeiden
+  if (brand && category.toLowerCase().startsWith(brand.toLowerCase())) {
+    category = category.slice(brand.length).trim() || category;
+  }
+  // "Vintage" dezent vor Kategorie, wenn im Era enthalten und noch nicht im Text
+  const era = formatEraForTitle(f.era);
+  const eraTokens = era.split(/\s+/);
+  const hasVintage = eraTokens.includes('vintage');
+  if (hasVintage && !/vintage/i.test(category)) category = 'Vintage ' + category;
 
-  const body =
-    'Authentischer ' + itemLabel + ' in der Farbe ' + color + ', Größe ' + size + '. ' +
-    'Dieser Secondhand-Fund verbindet ' + era + ' Vibes mit einem klaren, zeitlosen Look und eignet sich perfekt für Alltag, Casual-Outfits und moderne Streetwear-Kombinationen. ' +
-    'Die Marke ' + brand + ' steht für Wiedererkennungswert, hochwertige Anmutung und einen stylischen Auftritt, der sich leicht layering-freundlich stylen lässt. ' +
-    'Ideal als Statement-Piece oder als vielseitiges Basic für School, Uni, Arbeit und Wochenende. ' +
-    'Zustand: ' + condition + '. Farbe, Details und Passform bitte an den Fotos prüfen – bei Fragen einfach melden. ' +
-    'Suchbegriffe und Stilrichtungen: ' + brand + ', ' + category + ', ' + color + ', Größe ' + size + ', ' + era + ', preloved, thrifted, secondhand fashion.';
+  const parts = [];
+  if (brand) parts.push(brand);
+  if (category) parts.push(category);
+  if (f.size) parts.push('Gr. ' + f.size.replace(/^gr\.?\s*/i, ''));
+  if (f.color && f.color !== 'siehe Bilder') parts.push(f.color);
 
-  return buildTitleHeader(f) + '\n' + body;
+  let title = parts.join(' ').replace(/\s+/g, ' ').trim();
+  if (era) title += ' im ' + era + ' style';
+  title = title.replace(/\s+/g, ' ').trim();
+  if (title.length > 100) title = title.slice(0, 97).replace(/\s+\S*$/, '').trim();
+  return title || 'Artikel im y2k vintage retro streetwear style';
 }
 
 function setGeneratedTitle(title, statusText) {
@@ -1019,16 +1014,10 @@ function setGeneratedTitle(title, statusText) {
 function updateTitleCharCount() {
   const el = document.getElementById('generated-title');
   const countEl = document.getElementById('title-char-count');
-  const wordEl = document.getElementById('title-word-count');
-  if (!el) return;
-  const text = el.value || '';
-  const chars = text.length;
-  const words = countWords(text);
-  if (countEl) countEl.textContent = String(chars);
-  if (wordEl) {
-    wordEl.textContent = String(words);
-    wordEl.style.color = words < 50 ? 'var(--warn)' : 'var(--success-text)';
-  }
+  if (!el || !countEl) return;
+  const n = (el.value || '').length;
+  countEl.textContent = String(n);
+  countEl.style.color = n > 100 ? 'var(--warn)' : (n > 80 ? 'var(--gold)' : 'var(--ink-muted)');
 }
 
 function copyTitle() {
@@ -1056,7 +1045,7 @@ async function runTitleGeneration({ silent = false } = {}) {
   const key = getApiKey();
   if (!key) {
     const local = generateLocalTitle();
-    setGeneratedTitle(local, silent ? null : ('Lokaler Titel erstellt (kein API-Key) · ' + countWords(local) + ' Wörter.'));
+    setGeneratedTitle(local, silent ? null : ('Lokaler Titel erstellt · ' + local.length + ' Zeichen.'));
     return { source: 'local', title: local };
   }
 
@@ -1073,7 +1062,7 @@ async function runTitleGeneration({ silent = false } = {}) {
     }
     if (!title) throw new Error('Leerer Titel');
     const providerLabel = getProvider() === 'groq' ? 'Groq' : 'Gemini';
-    setGeneratedTitle(title, silent ? null : ('Fertig mit ' + providerLabel + ' · ' + countWords(title) + ' Wörter.'));
+    setGeneratedTitle(title, silent ? null : ('Fertig mit ' + providerLabel + '.'));
     return { source: providerLabel, title };
   } catch (err) {
     const local = generateLocalTitle();
@@ -2055,8 +2044,8 @@ async function generateAllListing() {
       summary.title = await runTitleGeneration({ silent: true });
       if (titleStatus) {
         titleStatus.textContent = summary.title.source === 'local' || summary.title.source === 'local-fallback'
-          ? ('Titel lokal · ' + countWords(summary.title.title || '') + ' Wörter')
-          : ('Titel fertig · ' + countWords(summary.title.title || '') + ' Wörter');
+          ? 'Titel lokal erstellt.'
+          : 'Titel fertig.';
       }
       setAllGenerateProgress('2/3 · Titel fertig ✓', 67);
     } catch (err) {
@@ -2709,5 +2698,5 @@ if (titleInput) {
 }
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbcb37ffab9284',t:'MTc4NDQ4NTc4OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbcfdb89b7efb7',t:'MTc4NDQ4NTk3OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
