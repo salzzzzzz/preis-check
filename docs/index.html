@@ -382,6 +382,21 @@
     <label class="field-label" style="margin-top:12px;">Fester Beschreibungstil</label>
     <div style="background:#161613;border:1px solid var(--card-border);border-radius:6px;padding:10px;color:var(--ink-muted);font-size:12px;margin-bottom:10px;">Der feste Stil mit Zustand, Größe, optionalen Maßen, Details, Versand und Hashtags wird automatisch verwendet.</div>
     <textarea id="style-template" style="display:none"></textarea>
+
+    <h2 style="margin-top:16px;">Verkaufstitel</h2>
+    <div style="font-size:11px;color:var(--ink-muted);margin-bottom:8px;">
+      Kurzer, suchmaschinenfreundlicher Vinted-Titel aus Marke, Artikel, Kategorie, Größe und Zustand – per KI oder lokal.
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+      <button class="ghost" onclick="generateTitle()" id="title-btn">Titel generieren</button>
+      <button class="ghost" onclick="copyTitle()">Kopieren</button>
+      <span class="analyze-status" id="title-status"></span>
+    </div>
+    <input id="generated-title" type="text" maxlength="100" placeholder="z.B. Ralph Lauren Sweater gestreift · Größe S · Sehr gut" style="width:100%;margin-bottom:14px;" />
+    <div style="font-size:11px;color:var(--ink-muted);margin-bottom:12px;">
+      <span id="title-char-count">0</span>/80 Zeichen empfohlen (max. 100)
+    </div>
+
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
       <button class="ghost" onclick="generateDescription()" id="desc-btn">Beschreibung generieren</button>
       <span class="analyze-status" id="desc-status"></span>
@@ -604,6 +619,195 @@ function generateLocalDescription() {
   const tags = [...FIXED_DESCRIPTION_TAGS, ...extra.filter(t => !FIXED_DESCRIPTION_TAGS.includes(t))];
   lines.push(tags.map(t => '#' + t).join(' '));
   return lines.join('\n');
+}
+
+function buildTitlePrompt() {
+  const name = document.getElementById('f-name').value.trim();
+  const brand = document.getElementById('f-brand').value.trim();
+  const category = document.getElementById('f-category').value.trim();
+  const condition = document.getElementById('f-condition').value.trim();
+  const size = document.getElementById('f-size').value.trim();
+  const defects = document.getElementById('f-defects').value.trim();
+  return 'Erstelle einen kurzen, suchmaschinenfreundlichen deutschen Vinted-Verkaufstitel für folgenden Artikel. ' +
+    'Artikeldaten: ' + [name, brand, category].filter(Boolean).join(', ') + '. ' +
+    'Zustand: ' + (condition || 'nicht angegeben') + '. ' +
+    'Größe: ' + (size || 'nicht angegeben') + '. ' +
+    (defects && !/^keine\.?$/i.test(defects) ? ('Mängel/Hinweise: ' + defects + '. ') : '') +
+    'Regeln: maximal 80 Zeichen, ideal 50–75 Zeichen. Marke und Artikeltyp zuerst, dann ggf. Modell/Farbe/Muster, Größe und Zustand. ' +
+    'Kein Emoji, keine Anführungszeichen, keine Hashtags, keine Preisangabe, keine übertriebenen Werbeworte wie „Hammerdeal“. ' +
+    'Erfinde keine Details. Antworte ausschließlich als JSON-Objekt ohne Markdown mit dem Feld title.';
+}
+
+function normalizeGeneratedTitle(text) {
+  let t = String(text || '')
+    .replace(/^```(?:json|text|markdown)?/gi, '')
+    .replace(/```$/g, '')
+    .replace(/^["'„“”]+|["'„“”]+$/g, '')
+    .replace(/#\w+/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  try {
+    const parsed = JSON.parse(t);
+    if (parsed && parsed.title) t = String(parsed.title).trim();
+  } catch (e) {
+    const match = t.match(/\{[\s\S]*\}/);
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[0]);
+        if (parsed && parsed.title) t = String(parsed.title).trim();
+      } catch (e2) { /* keep t */ }
+    }
+  }
+  t = t.replace(/^title\s*[:=]\s*/i, '').replace(/^["'„“”]+|["'„“”]+$/g, '').replace(/\s+/g, ' ').trim();
+  if (t.length > 100) t = t.slice(0, 97).replace(/\s+\S*$/, '').trim() + '…';
+  return t;
+}
+
+function generateLocalTitle() {
+  const name = document.getElementById('f-name').value.trim();
+  const brand = document.getElementById('f-brand').value.trim();
+  const category = document.getElementById('f-category').value.trim();
+  const condition = document.getElementById('f-condition').value.trim();
+  const size = document.getElementById('f-size').value.trim();
+
+  let core = '';
+  if (name) {
+    core = name;
+    // Marke voranstellen, falls im Namen noch nicht enthalten
+    if (brand && !name.toLowerCase().includes(brand.toLowerCase())) core = brand + ' ' + name;
+  } else {
+    core = [brand, category].filter(Boolean).join(' ') || 'Artikel';
+  }
+
+  const extras = [];
+  if (size) extras.push('Gr. ' + size);
+  if (condition) extras.push(condition);
+
+  let title = core;
+  for (const extra of extras) {
+    const next = title + ' · ' + extra;
+    if (next.length <= 80) title = next;
+    else break;
+  }
+  if (title.length > 100) title = title.slice(0, 97).trim() + '…';
+  return title;
+}
+
+function setGeneratedTitle(title, statusText) {
+  const el = document.getElementById('generated-title');
+  if (el) el.value = title || '';
+  updateTitleCharCount();
+  const st = document.getElementById('title-status');
+  if (st && statusText != null) st.textContent = statusText;
+}
+
+function updateTitleCharCount() {
+  const el = document.getElementById('generated-title');
+  const countEl = document.getElementById('title-char-count');
+  if (!el || !countEl) return;
+  const n = (el.value || '').length;
+  countEl.textContent = String(n);
+  countEl.style.color = n > 80 ? 'var(--warn)' : 'var(--ink-muted)';
+}
+
+function copyTitle() {
+  const el = document.getElementById('generated-title');
+  if (!el || !el.value) return;
+  el.select();
+  document.execCommand('copy');
+  const st = document.getElementById('title-status');
+  if (st) st.textContent = 'Titel in Zwischenablage kopiert.';
+}
+
+async function generateTitleSecureGemini() {
+  const st = document.getElementById('title-status');
+  const b = document.getElementById('title-btn');
+  st.textContent = 'Generiere Titel…';
+  b.disabled = true;
+  try {
+    const raw = await secureGeminiRequest(buildTitlePrompt(), pendingImages, 'description');
+    const parsed = parseGeminiJSON(raw);
+    const title = normalizeGeneratedTitle(parsed.title || raw);
+    if (!title) throw new Error('Leerer Titel');
+    setGeneratedTitle(title, 'Fertig mit Gemini (geschützt).');
+  } catch (e) {
+    setGeneratedTitle(generateLocalTitle(), 'Proxy-Fehler · lokaler Titel erstellt.');
+  } finally {
+    b.disabled = false;
+  }
+}
+
+async function generateTitleGroq(key) {
+  const raw = await groqRequest(key, buildTitlePrompt(), pendingImages, 'description');
+  const parsed = parseGeminiJSON(raw);
+  return normalizeGeneratedTitle(parsed.title || raw);
+}
+
+async function generateTitle() {
+  const name = document.getElementById('f-name').value.trim();
+  const brand = document.getElementById('f-brand').value.trim();
+  const category = document.getElementById('f-category').value.trim();
+  const st = document.getElementById('title-status');
+  const b = document.getElementById('title-btn');
+
+  if (!name && !brand && !category) {
+    st.textContent = 'Bitte zuerst Artikel-Daten ausfüllen oder Foto analysieren.';
+    return;
+  }
+
+  if (getProvider() === 'gemini' && supabaseClient) {
+    await generateTitleSecureGemini();
+    return;
+  }
+
+  const key = getApiKey();
+  if (!key) { openSettings(); return; }
+
+  if (getProvider() === 'groq') {
+    b.disabled = true;
+    st.textContent = 'Generiere Titel…';
+    try {
+      const title = await generateTitleGroq(key);
+      if (!title) throw new Error('Leerer Titel');
+      setGeneratedTitle(title, 'Fertig mit Groq.');
+    } catch (e) {
+      setGeneratedTitle(generateLocalTitle(), 'Groq-Fehler · lokaler Titel erstellt.');
+    } finally {
+      b.disabled = false;
+    }
+    return;
+  }
+
+  b.disabled = true;
+  st.textContent = 'Generiere Titel…';
+  try {
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: buildTitlePrompt() }] }]
+      })
+    });
+    if (!res.ok) {
+      const errBody = await res.json().catch(() => ({}));
+      throw new Error(errBody?.error?.message || ('HTTP ' + res.status));
+    }
+    const data = await res.json();
+    const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+    const parsed = parseGeminiJSON(text);
+    const title = normalizeGeneratedTitle(parsed.title || text);
+    if (!title) throw new Error('Leerer Titel');
+    setGeneratedTitle(title, 'Fertig.');
+  } catch (err) {
+    if (/quota|rate limit|429|billing/i.test(err.message)) {
+      setGeneratedTitle(generateLocalTitle(), 'Gemini-Kontingent erreicht · lokaler Titel erstellt.');
+    } else {
+      setGeneratedTitle(generateLocalTitle(), 'Fehler · lokaler Titel erstellt: ' + err.message);
+    }
+  } finally {
+    b.disabled = false;
+  }
 }
 
 async function groqRequest(key, prompt, images=[], kind='photo') {
@@ -957,13 +1161,13 @@ async function cloudSignIn(){if(!supabaseClient){cloudMessage('Supabase-Biblioth
 async function cloudSignUp(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signUp({email:document.getElementById('cloud-email').value.trim(),password:document.getElementById('cloud-password').value});cloudMessage(error?error.message:'Konto erstellt. Falls E-Mail-Bestätigung aktiv ist, bitte E-Mail bestätigen.')}
 async function cloudSignOut(){if(supabaseClient)await supabaseClient.auth.signOut();updateCloudStatus();cloudMessage('Abgemeldet.')}
 async function updateCloudStatus(){const u=await currentCloudUser();const e=document.getElementById('cloud-user-status');if(e)e.textContent=u?('angemeldet: '+u.email):'nicht angemeldet';if(u)refreshAIUsage()}
-function cloudRow(r,userId){return {id:crypto.randomUUID(),user_id:userId,article_no:r.articleNo||null,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',defects:r.defects||'',status:r.status||'geplant',platform:r.platform||'',notes:r.notes||'',ek:r.ek||0,sold_price:r.soldPrice||0,prices:r.prices||[],photos:r.photos||[],main_photo:r.mainPhoto||0,description:r.description||'',size:r.size||'',measurements:{chest:r.chest||'',length:r.length||'',shoulder:r.shoulder||'',sleeve:r.sleeve||''},updated_at:r.updated||new Date().toISOString()}}
+function cloudRow(r,userId){return {id:crypto.randomUUID(),user_id:userId,article_no:r.articleNo||null,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',defects:r.defects||'',status:r.status||'geplant',platform:r.platform||'',notes:r.notes||'',ek:r.ek||0,sold_price:r.soldPrice||0,prices:r.prices||[],photos:r.photos||[],main_photo:r.mainPhoto||0,title:r.title||'',description:r.description||'',size:r.size||'',measurements:{chest:r.chest||'',length:r.length||'',shoulder:r.shoulder||'',sleeve:r.sleeve||''},updated_at:r.updated||new Date().toISOString()}}
 async function uploadPhotoToCloud(src,userId,itemId,index){if(!src||src.startsWith('http'))return src;const blob=await (await fetch(src)).blob(),path=`${userId}/${itemId}/${index}.jpg`;const up=await supabaseClient.storage.from('article-images').upload(path,blob,{contentType:'image/jpeg',upsert:true});if(up.error)throw up.error;return path}
 
 async function signedPhotoUrl(path){if(!path)return '';if(path.startsWith('http')){const marker='/storage/v1/object/public/article-images/';const i=path.indexOf(marker);path=i>=0?decodeURIComponent(path.slice(i+marker.length)):path;};const r=await supabaseClient.storage.from('article-images').createSignedUrl(path,3600);return r.data?.signedUrl||''}
 async function syncAllToCloud(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}try{const local=inventoryData();const rows=await Promise.all(local.map(async r=>{const cloudId=r.cloudId||crypto.randomUUID(),photos=await Promise.all((r.photos||[]).map((x,i)=>uploadPhotoToCloud(x,u.id,cloudId,i)));const x=cloudRow({...r,photos},u.id);x.id=cloudId;return x}));const refs=loadCorrections().map(r=>({id:r.cloudId||crypto.randomUUID(),user_id:u.id,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',low:r.low,high:r.high,image:r.image||'',created_at:r.date||new Date().toISOString()}));let invoices=[];try{invoices=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(e){}invoices=invoices.map(r=>({id:r.cloudId||crypto.randomUUID(),user_id:u.id,invoice_number:r.number||'',invoice_date:r.date||new Date().toISOString().slice(0,10),customer_name:r.customer||'',customer_address:r.address||'',customer_email:r.email||'',amount:r.amount||0,payment_method:r.payment||'',status:r.status||'offen',tax_mode:r.taxMode||'kleinunternehmer'}));const a=await supabaseClient.from('inventory').upsert(rows),b=await supabaseClient.from('price_references').upsert(refs),c=await supabaseClient.from('invoices').upsert(invoices);const error=a.error||b.error||c.error;cloudMessage(error?error.message:(rows.length+' Artikel, '+refs.length+' Preisreferenzen und '+invoices.length+' Rechnungen synchronisiert.'))}catch(e){cloudMessage('Bild-Upload fehlgeschlagen: '+e.message)}}
 
-async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}const a=await supabaseClient.from('inventory').select('*').order('updated_at',{ascending:false}),b=await supabaseClient.from('price_references').select('*').order('created_at',{ascending:false}),c=await supabaseClient.from('invoices').select('*').order('created_at',{ascending:false});const error=a.error||b.error||c.error;if(error){cloudMessage(error.message);return}if(a.data?.length){const local=await Promise.all(a.data.map(async r=>({id:r.id,cloudId:r.id,articleNo:r.article_no,name:r.name,brand:r.brand,category:r.category,condition:r.condition,defects:r.defects,status:r.status,platform:r.platform||'',notes:r.notes||'',ek:Number(r.ek)||0,soldPrice:Number(r.sold_price)||0,prices:r.prices||[],photos:await Promise.all((r.photos||[]).map(signedPhotoUrl)),mainPhoto:r.main_photo||0,description:r.description||'',size:r.size||'',chest:r.measurements?.chest||'',length:r.measurements?.length||'',shoulder:r.measurements?.shoulder||'',sleeve:r.measurements?.sleeve||'',updated:r.updated_at})));saveInventoryData(local)}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)localStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
+async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}const a=await supabaseClient.from('inventory').select('*').order('updated_at',{ascending:false}),b=await supabaseClient.from('price_references').select('*').order('created_at',{ascending:false}),c=await supabaseClient.from('invoices').select('*').order('created_at',{ascending:false});const error=a.error||b.error||c.error;if(error){cloudMessage(error.message);return}if(a.data?.length){const local=await Promise.all(a.data.map(async r=>({id:r.id,cloudId:r.id,articleNo:r.article_no,name:r.name,brand:r.brand,category:r.category,condition:r.condition,defects:r.defects,status:r.status,platform:r.platform||'',notes:r.notes||'',ek:Number(r.ek)||0,soldPrice:Number(r.sold_price)||0,prices:r.prices||[],photos:await Promise.all((r.photos||[]).map(signedPhotoUrl)),mainPhoto:r.main_photo||0,title:r.title||'',description:r.description||'',size:r.size||'',chest:r.measurements?.chest||'',length:r.measurements?.length||'',shoulder:r.measurements?.shoulder||'',sleeve:r.measurements?.sleeve||'',updated:r.updated_at})));saveInventoryData(local)}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)localStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
 
 async function restoreCloudSession(){if(supabaseClient){await updateCloudStatus();supabaseClient.auth.onAuthStateChange(()=>updateCloudStatus())}}
 
@@ -987,11 +1191,11 @@ function inventoryData(){try{return JSON.parse(localStorage.getItem(INVENTORY_KE
 function saveInventoryData(list){localStorage.setItem(INVENTORY_KEY,JSON.stringify(list))}
 function nextArticleNo(){const year=new Date().getFullYear(),nums=inventoryData().map(x=>parseInt(String(x.articleNo||'').replace(/\D/g,''),10)).filter(Number.isFinite);return year+'-'+String((Math.max(0,...nums)%10000)+1).padStart(4,'0')}
 function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{localStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:currentRecord()}))}catch(e){}},500)}
-function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';prices=r.prices||[];pendingImages=r.photos||[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();renderResearchLinks();calculate()}}catch(e){}}
+function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}if(document.getElementById('generated-description')&&r.description)document.getElementById('generated-description').value=r.description;prices=r.prices||[];pendingImages=r.photos||[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();renderResearchLinks();calculate()}}catch(e){}}
 
-function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0,5),description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
+function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0,5),title:document.getElementById('generated-title')?.value||'',description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
 function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=currentRecord();if(!r.articleNo)r.articleNo=nextArticleNo();document.getElementById('f-article-no').value=r.articleNo;if(!r.name&&!r.brand&&!r.category){document.getElementById('save-status').textContent='Bitte zuerst Artikeldaten eintragen.';return}currentItemId=r.id;const l=inventoryData(),i=l.findIndex(x=>x.id===r.id);if(i>=0)l[i]=r;else l.unshift(r);saveInventoryData(l);localStorage.removeItem('preis-check-draft');if(supabaseClient)syncAllToCloud();document.getElementById('save-status').textContent='Gespeichert.';renderStats()}
-function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos:[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();if(pendingImage){document.getElementById('preview-img').src=pendingImage;document.getElementById('preview-img').style.display='inline-block';document.getElementById('dropzone-hint').style.display='none'}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
+function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos:[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();if(pendingImage){document.getElementById('preview-img').src=pendingImage;document.getElementById('preview-img').style.display='inline-block';document.getElementById('dropzone-hint').style.display='none'}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
 function deleteItem(id){createAutoBackup('Vor dem Löschen');saveInventoryData(inventoryData().filter(x=>x.id!==id));renderInventory();renderStats()}
 function renderInventory(){const e=document.getElementById('inventory-list'),all=inventoryData(),q=(document.getElementById('inventory-search')?.value||'').toLowerCase(),f=document.getElementById('inventory-filter')?.value||'',sort=document.getElementById('inventory-sort')?.value||'new';let l=all.filter(r=>(!q||[r.name,r.brand,r.category].join(' ').toLowerCase().includes(q))&&(!f||r.status===f));l.sort((a,b)=>sort==='name'?String(a.name||'').localeCompare(String(b.name||'')):sort==='profit'?((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0)):String(b.updated||'').localeCompare(String(a.updated||'')));if(!l.length){e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>';updateStorageInfo(all);return}e.innerHTML=l.map(r=>{const m=median(r.prices||[]),profit=(r.soldPrice||0)-(r.ek||0);const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';return `<div class="inventory-card">${img}<h3>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3><p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p><p>Status: <b>${escapeHtml(r.status||'geplant')}</b>${r.platform?' · '+escapeHtml(r.platform):''}</p><p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}<div class="inventory-actions"><button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button><button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button><button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button><button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button></div></div>`}).join('');updateStorageInfo(all)}
 function duplicateItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;const copy=JSON.parse(JSON.stringify(r));copy.id=Date.now().toString(36);delete copy.cloudId;copy.articleNo=nextArticleNo();copy.name=(copy.name||'Artikel')+' (Kopie)';copy.status='geplant';copy.soldPrice=0;copy.updated=new Date().toISOString();const l=inventoryData();l.unshift(copy);saveInventoryData(l);renderInventory();renderStats()}
@@ -1016,7 +1220,7 @@ function generateInvoice(){saveInvoiceSettings();const id=document.getElementByI
 function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
 function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
 
-function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description'].forEach(id=>document.getElementById(id).value='');document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block'}
+function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';const ts=document.getElementById('title-status');if(ts)ts.textContent='';updateTitleCharCount();renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block'}
 function learnedRange(brand,category,condition){const b=(brand||'').toLowerCase(),c=(category||'').toLowerCase(),co=(condition||'').toLowerCase();const list=loadCorrections().map(x=>{const ib=(x.brand||'').toLowerCase(),ic=(x.category||'').toLowerCase(),io=(x.condition||'').toLowerCase();let score=0;if(b&&ib===b)score+=5;else if(b&&ib.includes(b)||b&&ib&&b.includes(ib))score+=3;if(c&&ic===c)score+=5;else if(c&&ic.includes(c)||c&&ic&&c.includes(ic))score+=3;if(co&&io===co)score+=2;return {x,score}}).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score).slice(0,12);if(!list.length)return null;const weights=list.map(x=>x.score),sum=weights.reduce((a,v)=>a+v,0);return {low:list.reduce((a,v,i)=>a+v.x.low*weights[i],0)/sum,high:list.reduce((a,v,i)=>a+(v.x.high||v.x.low)*weights[i],0)/sum,count:list.length}}
 function renderLearningInsights(){const e=document.getElementById('learning-insights');if(!e)return;const l=loadCorrections(),values=l.flatMap(x=>[Number(x.low)||0,Number(x.high)||Number(x.low)||0]).filter(Boolean),brands=new Set(l.map(x=>x.brand).filter(Boolean)),cats=new Set(l.map(x=>x.category).filter(Boolean));e.innerHTML=`<div class="metric"><span class="muted">Preisreferenzen</span><strong>${l.length}</strong></div><div class="metric"><span class="muted">Marken gelernt</span><strong>${brands.size}</strong></div><div class="metric"><span class="muted">Kategorien gelernt</span><strong>${cats.size}</strong></div><div class="metric"><span class="muted">Durchschnittliche Range-Mitte</span><strong>${values.length?fmtEUR(values.reduce((a,v)=>a+v,0)/values.length):'–'}</strong></div>`}
 function localFallbackEstimate(){const r=learnedRange(document.getElementById('f-brand').value,document.getElementById('f-category').value,document.getElementById('f-condition').value);if(!r)return false;prices=prices.filter(p=>p.source!=='ai');prices.push({value:r.low,source:'ai'},{value:r.high,source:'ai'});renderPrices();calculate();return true}
@@ -1144,6 +1348,11 @@ renderInvoiceHistory();
 restoreCloudSession();
 if(!document.getElementById('f-article-no').value)document.getElementById('f-article-no').value=nextArticleNo();
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
+const titleInput = document.getElementById('generated-title');
+if (titleInput) {
+  titleInput.addEventListener('input', () => { updateTitleCharCount(); scheduleDraftSave(); });
+  updateTitleCharCount();
+}
 calculate();
 </script>
 <script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
