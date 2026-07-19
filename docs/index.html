@@ -243,7 +243,10 @@
 
   <div class="top-row">
     <h1>Preis-Check</h1>
-    <button class="settings-btn" onclick="openSettings()">KI-Einstellungen</button>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <span id="current-model-badge" class="muted" style="font-size:11px; background:#161613; padding:2px 8px; border-radius:4px; border:1px solid var(--card-border); cursor:pointer;" onclick="openSettings()" title="KI-Modell ändern"></span>
+      <button class="settings-btn" onclick="openSettings()">KI-Einstellungen</button>
+    </div>
   </div>
   <hr class="divider" />
 
@@ -261,7 +264,29 @@
     </div>
     <div class="analyze-row">
       <button class="ghost" id="analyze-btn" onclick="analyzeImage()" disabled>Foto analysieren</button>
+      <button class="ghost" onclick="generateSmartTitle()" style="margin-left:4px;">🔖 Titel-Metadaten</button>
       <span class="analyze-status" id="analyze-status"></span>
+    </div>
+
+    <!-- Automatische Titel-Metadaten (exakt wie gewünscht) -->
+    <div id="title-meta-panel" style="display:none; margin:4px 0 8px; background:#161613; border:1px solid var(--card-border); border-radius:6px; padding:8px; font-size:11px;">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px 14px; margin-bottom:4px;">
+        <div><b>Marke:</b> <span id="tm-brand"></span></div>
+        <div><b>Größe:</b> <span id="tm-size"></span></div>
+        <div><b>Kategorie:</b> <span id="tm-cat"></span></div>
+        <div><b>Farbe:</b> <span id="tm-color"></span></div>
+        <div><b>Era/Style:</b> <span id="tm-era"></span></div>
+      </div>
+      <div>
+        <b>Optimale Länge (64 Zeichen)</b><br>
+        <span id="tm-title" style="font-family:'IBM Plex Mono',monospace; color:#d9a441; font-size:13px;"></span>
+        <span id="tm-len" style="font-size:10px; color:var(--ink-muted); margin-left:5px;"></span>
+        <button onclick="applySmartTitle()" class="ghost" style="font-size:10px; padding:1px 7px; margin-left:8px;">Übernehmen</button>
+        <button onclick="enhanceTitleWithAI()" class="ghost" style="font-size:10px; padding:1px 7px;">KI optimieren</button>
+      </div>
+      <div style="text-align:right; margin-top:3px;">
+        <button onclick="hideTitleMeta()" class="ghost" style="font-size:10px; padding:1px 5px;">Schließen</button>
+      </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
       <button class="primary" onclick="saveCurrentItem()">📦 Aktuellen Artikel speichern</button>
@@ -657,7 +682,7 @@ async function generateDescriptionGroq(key){
   const prompt='Erstelle für folgenden Artikel eine deutsche Vinted-Verkaufsbeschreibung: '+[name,brand,category].filter(Boolean).join(', ')+'. Zustand: '+(condition||'nicht angegeben')+'. Mängel: '+(defects||'keine angegeben')+'. Größe: '+(size||'nicht angegeben')+'. Maße nur verwenden, wenn vorhanden: '+[chest&&('Achsel zu Achsel: '+chest),length&&('Gesamtlänge: '+length),shoulder&&('Schulterbreite: '+shoulder),sleeve&&('Ärmellänge: '+sleeve)].filter(Boolean).join('; ')+'. Verwende die festgelegten Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. Erfinde keine Fakten. Antworte als JSON mit description und extra_hashtags (20 bis 30 passende Hashtags ohne #).';
   const raw=await groqRequest(key,prompt,pendingImages,'description');const parsed=parseGeminiJSON(raw);const tags=[...FIXED_DESCRIPTION_TAGS,...(parsed.extra_hashtags||[]).map(x=>String(x).toLowerCase().replace(/[^a-z0-9äöüß]/g,'')).filter(x=>x&&!FIXED_DESCRIPTION_TAGS.includes(x))];document.getElementById('generated-description').value=normalizeGeneratedDescription(parsed.description||'')+'\n\n'+tags.map(t=>'#'+t).join(' ');
 }
-async function analyzeImageGroq(key){const status=document.getElementById('analyze-status');status.textContent='Analysiere Bild mit Groq…';const condition=document.getElementById('f-condition').value,defects=document.getElementById('f-defects').value.trim();const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. '+(condition?'Zustand: '+condition+'.':'')+(defects?' Mängel: '+defects+'.':'')+' Antworte ausschließlich als JSON mit name, brand, category, condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const raw=await groqRequest(key,prompt,pendingImages,'photo');const parsed=parseGeminiJSON(raw);if(parsed.name)document.getElementById('f-name').value=parsed.name;if(parsed.brand)document.getElementById('f-brand').value=parsed.brand;if(parsed.category)document.getElementById('f-category').value=parsed.category;if(!condition&&parsed.condition)document.getElementById('f-condition').value=parsed.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(parsed.price_low),high=Number(parsed.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();status.textContent=`Erkannt · Groq-Preisvorschlag: ${fmtEUR(low)}–${fmtEUR(high)}`}
+async function analyzeImageGroq(key){const status=document.getElementById('analyze-status');const modelLabel = getModelLabel(getSelectedModel()); status.textContent=`Analysiere mit ${modelLabel}…`;const condition=document.getElementById('f-condition').value,defects=document.getElementById('f-defects').value.trim();const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. '+(condition?'Zustand: '+condition+'.':'')+(defects?' Mängel: '+defects+'.':'')+' Antworte ausschließlich als JSON mit name, brand, category, condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const raw=await groqRequest(key,prompt,pendingImages,'photo');const parsed=parseGeminiJSON(raw);if(parsed.name)document.getElementById('f-name').value=parsed.name;if(parsed.brand)document.getElementById('f-brand').value=parsed.brand;if(parsed.category)document.getElementById('f-category').value=parsed.category;if(!condition&&parsed.condition)document.getElementById('f-condition').value=parsed.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(parsed.price_low),high=Number(parsed.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();status.textContent=`Erkannt mit ${modelLabel} · ${fmtEUR(low)}–${fmtEUR(high)}`}
 
 async function secureGeminiRequest(prompt, images=[], kind='photo'){
   if(!supabaseClient) throw new Error('Supabase ist nicht geladen.');
@@ -670,7 +695,7 @@ async function secureGeminiRequest(prompt, images=[], kind='photo'){
 async function generateDescriptionSecureGemini(){
  const st=document.getElementById('desc-status'),b=document.getElementById('desc-btn');st.textContent='Generiere Beschreibung…';b.disabled=true;
  try{const item=[document.getElementById('f-name').value.trim(),document.getElementById('f-brand').value.trim(),document.getElementById('f-category').value.trim()].filter(Boolean).join(', ');const prompt='Erstelle eine deutsche Vinted-Verkaufsbeschreibung für '+item+'. Verwende die Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. Zustand: '+(document.getElementById('f-condition').value||'nicht angegeben')+'. Mängel: '+(document.getElementById('f-defects').value.trim()||'keine angegeben')+'. Größe: '+(document.getElementById('f-size').value.trim()||'nicht angegeben')+'. Maße nur verwenden, wenn vorhanden. Erfinde keine Fakten. Antworte ausschließlich als JSON mit description und extra_hashtags (20 bis 30 passende Hashtags ohne #).';const raw=await secureGeminiRequest(prompt,pendingImages,'description');const o=parseGeminiJSON(raw),tags=[...FIXED_DESCRIPTION_TAGS,...(o.extra_hashtags||[]).map(x=>String(x).toLowerCase().replace(/[^a-z0-9äöüß]/g,'')).filter(x=>x&&!FIXED_DESCRIPTION_TAGS.includes(x))];document.getElementById('generated-description').value=normalizeGeneratedDescription(o.description||'')+'\n\n'+tags.map(t=>'#'+t).join(' ');st.textContent='Fertig mit Gemini (geschützt).'}catch(e){document.getElementById('generated-description').value=generateLocalDescription();st.textContent='Proxy-Fehler · lokale Beschreibung erstellt.'}finally{b.disabled=false}}
-async function analyzeImageSecureGemini(){const st=document.getElementById('analyze-status');st.textContent='Analysiere Bild (geschützt)…';const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. Antworte ausschließlich als JSON mit name, brand, category, condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const o=parseGeminiJSON(await secureGeminiRequest(prompt,pendingImages,'photo'));if(o.name)document.getElementById('f-name').value=o.name;if(o.brand)document.getElementById('f-brand').value=o.brand;if(o.category)document.getElementById('f-category').value=o.category;if(!document.getElementById('f-condition').value&&o.condition)document.getElementById('f-condition').value=o.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(o.price_low),high=Number(o.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();st.textContent='Erkannt · Gemini-Preisvorschlag (geschützt)'}
+async function analyzeImageSecureGemini(){const st=document.getElementById('analyze-status');const mLabel = getModelLabel(getSelectedModel()); st.textContent=`Analysiere mit ${mLabel} (geschützt)…`;const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. Antworte ausschließlich als JSON mit name, brand, category, condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const o=parseGeminiJSON(await secureGeminiRequest(prompt,pendingImages,'photo'));if(o.name)document.getElementById('f-name').value=o.name;if(o.brand)document.getElementById('f-brand').value=o.brand;if(o.category)document.getElementById('f-category').value=o.category;if(!document.getElementById('f-condition').value&&o.condition)document.getElementById('f-condition').value=o.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(o.price_low),high=Number(o.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();st.textContent=`Erkannt mit ${mLabel} · Gemini-Preisvorschlag (geschützt)`}
 
 async function generateDescription() {
   const provider = getProvider();
@@ -680,7 +705,7 @@ async function generateDescription() {
     // Groq läuft meist über den Supabase-Proxy → Key optional
     const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status');
     b.disabled=true; st.textContent='Generiere Beschreibung…';
-    try { await generateDescriptionGroq(key || ''); st.textContent='Fertig mit Groq.'; }
+    try { await generateDescriptionGroq(key || ''); } catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; } finally { if (!st.textContent || st.textContent.includes('Fehler')) st.textContent = 'Fertig.'; }
     catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; }
     finally { b.disabled=false; }
     return;
@@ -845,10 +870,33 @@ function getApiKey(){return getProvider()==='groq'?(localStorage.getItem(GROQKEY
 function getModel(){
   const saved = localStorage.getItem(MODEL_KEY);
   if (saved) return saved;
-  // sensible default
-  return getProvider()==='groq' ? 'llama-3.3-70b-versatile' : 'gemini-1.5-flash';
+  // Modell mit den meisten Tokens / Parametern als Default (beste Qualität / meisten Uses)
+  return getProvider()==='groq' ? 'llama-3.3-70b-versatile' : 'gemini-1.5-pro';
 }
 function getSelectedModel(){ return localStorage.getItem(MODEL_KEY) || getModel(); }
+
+function getModelLabel(modelId) {
+  for (const prov in AI_MODELS) {
+    const found = AI_MODELS[prov].find(m => m.id === modelId);
+    if (found) return found.label;
+  }
+  return modelId || 'Standard';
+}
+
+function updateCurrentModelBadge() {
+  const badge = document.getElementById('current-model-badge');
+  if (!badge) return;
+  const model = getSelectedModel();
+  const provider = getProvider();
+  const label = getModelLabel(model);
+  const short = label.length > 22 ? label.substring(0,19) + '…' : label;
+  badge.innerHTML = (provider === 'groq' ? '🦙 ' : '✨ ') + short;
+  badge.title = `Aktuelles Modell: ${label} (${provider}) — klicken zum Ändern`;
+}
+
+function refreshModelUI() {
+  updateCurrentModelBadge();
+}
 function toggleProviderKey(){
   const provider = document.getElementById('provider-input').value;
   const isGroq = provider === 'groq';
@@ -866,6 +914,23 @@ function toggleProviderKey(){
 
   // populate model dropdown
   updateModelSelect(provider);
+
+  // live preview of current model in badge + attach live listener
+  setTimeout(() => {
+    const modelSel = document.getElementById('model-input');
+    const badge = document.getElementById('current-model-badge');
+    if (modelSel && badge) {
+      const updatePreview = () => {
+        const previewModel = modelSel.value || getSelectedModel();
+        const label = getModelLabel(previewModel);
+        const short = label.length > 22 ? label.substring(0,19) + '…' : label;
+        badge.innerHTML = (provider === 'groq' ? '🦙 ' : '✨ ') + short;
+        badge.title = `Vorschau: ${label} (${provider})`;
+      };
+      modelSel.onchange = updatePreview;
+      updatePreview();
+    }
+  }, 40);
 }
 
 function updateModelSelect(provider) {
@@ -903,6 +968,7 @@ function saveApiKey(){
     localStorage.setItem(MODEL_KEY, modelSel.value);
   }
   closeSettings();
+  updateCurrentModelBadge();
 }
 async function testAIConnection() {
   const provider = document.getElementById('provider-input').value;
@@ -1092,6 +1158,9 @@ async function analyzeImage() {
       : 'Erkannt';
     renderResearchLinks();
 
+    // Auto title suggestion (fast local)
+    setTimeout(() => { if (typeof generateSmartTitle === 'function') generateSmartTitle(); }, 80);
+
   } catch (err) {
     if (/quota|rate limit|429|billing/i.test(err.message)) {
       const fallback = localFallbackEstimate();
@@ -1100,6 +1169,11 @@ async function analyzeImage() {
   } finally {
     document.getElementById('analyze-btn').disabled = false;
   }
+
+  // Automatisch Titel-Metadaten generieren (schnell & lokal)
+  setTimeout(() => {
+    try { if (typeof generateSmartTitle === 'function') generateSmartTitle(); } catch(e){}
+  }, 120);
 }
 
 function handleLibraryImage(file){if(!file)return;const reader=new FileReader();reader.onload=async e=>{libraryImage=await resizeImage(e.target.result,500,0.75);document.getElementById('lib-image-preview').innerHTML=`<img src="${libraryImage}" alt="Beispielbild">`};reader.readAsDataURL(file)}
@@ -1572,8 +1646,105 @@ restoreCloudSession();
 if(!document.getElementById('f-article-no').value || document.getElementById('f-article-no').value.startsWith('000')) {
   document.getElementById('f-article-no').value = nextArticleNo();
 }
+updateCurrentModelBadge();
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
+
+// ========== AUTOMATISCHE TITEL-METADATEN (Vinted 64 Zeichen) ==========
+function generateSmartTitle() {
+  const brand = (document.getElementById('f-brand')?.value || '').trim();
+  const name = (document.getElementById('f-name')?.value || '').trim();
+  const cat = (document.getElementById('f-category')?.value || '').trim();
+  const size = (document.getElementById('f-size')?.value || '').trim();
+  const condition = (document.getElementById('f-condition')?.value || '').trim();
+
+  const fullText = (brand + ' ' + name + ' ' + cat + ' ' + condition).toLowerCase();
+
+  // Farbe erkennen
+  let color = '';
+  const colorList = ['schwarz','weiß','weiss','rot','blau','grün','gelb','pink','rosa','grau','beige','braun','navy','khaki','oliv','creme','mint','schwarzweiß'];
+  for (let c of colorList) {
+    if (fullText.includes(c)) { color = c.charAt(0).toUpperCase() + c.slice(1); break; }
+  }
+
+  // Era / Style
+  let era = '';
+  if (/y2k|vintage|retro|90s|80s|00s|2000s/.test(fullText)) era = 'Y2K/Vintage';
+  else if (/streetwear|casual|basic|oversize/.test(fullText)) era = 'Streetwear';
+  else if (/preppy|ralph|lauren|pol|tommy/.test(fullText)) era = 'Preppy';
+
+  // Optimaler Titel zusammenbauen (max 64 Zeichen)
+  let titleParts = [];
+  if (brand) titleParts.push(brand);
+  if (name && !titleParts.some(p => name.toLowerCase().includes(p.toLowerCase()))) titleParts.push(name);
+  if (size) titleParts.push(size);
+  if (cat) titleParts.push(cat);
+  if (color) titleParts.push(color);
+
+  let title = titleParts.join(' ').replace(/\s+/g, ' ').trim();
+  if (title.length > 64) title = title.substring(0, 61) + '…';
+
+  // Panel anzeigen
+  const panel = document.getElementById('title-meta-panel');
+  if (panel) panel.style.display = 'block';
+
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.textContent = val || '–'; };
+
+  set('tm-brand', brand);
+  set('tm-size', size);
+  set('tm-cat', cat);
+  set('tm-color', color);
+  set('tm-era', era);
+
+  const tEl = document.getElementById('tm-title');
+  const lEl = document.getElementById('tm-len');
+  if (tEl) tEl.textContent = title;
+  if (lEl) lEl.textContent = `${title.length}/64`;
+
+  window._smartTitle = { title, brand, size, cat, color, era };
+}
+
+function applySmartTitle() {
+  const data = window._smartTitle;
+  if (!data || !data.title) return;
+  const f = document.getElementById('f-name');
+  if (f) {
+    f.value = data.title;
+    f.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+  hideTitleMeta();
+}
+
+async function enhanceTitleWithAI() {
+  const tEl = document.getElementById('tm-title');
+  if (!tEl) return;
+
+  tEl.textContent = 'KI optimiert…';
+  const base = window._smartTitle || {};
+  const prompt = `Erstelle einen verkaufsstarken Vinted-Titel (max 64 Zeichen). Nur den Titel zurückgeben.\nMarke: ${base.brand||''}\nArtikel: ${document.getElementById('f-name').value||''}\nKategorie: ${base.cat||''}\nGröße: ${base.size||''}\nFarbe: ${base.color||''}\nStyle: ${base.era||''}`;
+
+  try {
+    let result = '';
+    const prov = getProvider();
+    if (prov === 'groq') {
+      result = await groqRequest(getApiKey() || '', prompt, [], 'description');
+    } else if (supabaseClient) {
+      result = await secureGeminiRequest(prompt, [], 'description');
+    }
+    result = result.replace(/["'`\n]/g, '').trim();
+    if (result.length > 64) result = result.substring(0,61) + '…';
+
+    tEl.textContent = result;
+    window._smartTitle = { ...base, title: result };
+  } catch(e) {
+    tEl.textContent = (base.title || '').substring(0,64);
+  }
+}
+
+function hideTitleMeta() {
+  const p = document.getElementById('title-meta-panel');
+  if (p) p.style.display = 'none';
+}
 </script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db3cb898469239',t:'MTc4NDQ3OTk1Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
