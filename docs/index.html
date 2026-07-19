@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Preis-Check &amp; Kauf-Entscheidung</title>
+<title>Preis-Check · Build 2026.07.19</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
 
@@ -294,11 +294,53 @@
     .inventory-card{min-width:0;}.inventory-actions{flex-wrap:wrap;}.inventory-actions button{flex:1;}
     .photo-strip img{width:62px;height:62px;}
   }
+
+  .field-error input, .field-error select, .field-error textarea {
+    border-color: var(--danger) !important;
+    box-shadow: 0 0 0 1px rgba(192,87,74,.35);
+  }
+  .req-hint { font-size:11px; color:var(--danger); margin-top:4px; display:none; }
+  .field-error .req-hint { display:block; }
+  .confidence-box {
+    font-size:12px; margin-top:8px; padding:8px 10px; border-radius:8px;
+    background:rgba(217,164,65,.1); border:1px solid var(--card-border); color:var(--ink-muted);
+  }
+  .confidence-box.low { border-color:var(--danger); background:rgba(192,87,74,.12); color:#f0a8a0; }
+  .confidence-box.mid { border-color:var(--gold); }
+  .confidence-box.high { border-color:var(--success); background:rgba(126,163,107,.12); color:var(--success-text); }
+  .recent-row { display:flex; gap:6px; flex-wrap:wrap; margin:8px 0 12px; }
+  .recent-chip {
+    border:1px solid var(--card-border); background:#161613; color:var(--ink-muted);
+    border-radius:8px; padding:6px 10px; font-size:11px; cursor:pointer; max-width:180px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .recent-chip:hover { border-color:var(--gold); color:var(--ink); }
+  .bulk-bar {
+    display:none; gap:8px; flex-wrap:wrap; align-items:center; margin:8px 0 12px;
+    padding:10px; border:1px solid var(--card-border); border-radius:8px; background:#161613;
+  }
+  .bulk-bar.open { display:flex; }
+  .inv-check { position:absolute; top:8px; left:8px; width:18px; height:18px; z-index:2; }
+  .inventory-card { position:relative; }
+  .version-badge { font-size:10px; color:var(--ink-muted); font-family:'IBM Plex Mono',monospace; }
+  .lang-toggle { display:inline-flex; gap:4px; margin-left:6px; }
+  .lang-toggle button { padding:4px 8px; min-height:auto; font-size:11px; }
+  .lang-toggle button.active { border-color:var(--gold); color:var(--gold); }
+  .price-hist { font-size:11px; color:var(--ink-muted); margin-top:6px; max-height:72px; overflow:auto; }
+  .dup-warn { font-size:12px; color:var(--gold); margin-top:6px; }
+  @media(max-width:760px){
+    button.primary, button.ghost, button.settings-btn, .status-chip { min-height:44px; font-size:13px; padding:10px 12px; }
+    .nav-btn { min-height:52px; font-size:11px; padding:10px 4px; }
+    .inventory-actions button { min-height:42px; }
+    .recent-chip { max-width:46%; flex:1; min-height:40px; }
+  }
+
 </style>
 </head>
 <body>
 <div class="sidebar">
   <div class="sidebar-title">Preis-Check</div>
+  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19</div>
   <button class="nav-btn active" data-view="check" onclick="switchView('check',this)">🧮 Preis-Check</button>
   <button class="nav-btn" data-view="cloud" onclick="switchView('cloud',this)">☁️ Cloud-Sync</button>
   <button class="nav-btn" data-view="privacy" onclick="switchView('privacy',this)">🔒 Datenschutz</button>
@@ -364,10 +406,16 @@
       <div class="storage-bar"><span id="all-generate-bar" style="width:0%;background:var(--gold);transition:width .25s ease;"></span></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
-      <button class="primary" onclick="saveCurrentItem()">📦 Aktuellen Artikel speichern</button>
+      <button class="primary" onclick="saveCurrentItem()">📦 Speichern</button>
+      <button class="primary" onclick="saveAsListed()">📌 Als eingestellt speichern</button>
       <button class="ghost" onclick="newItem()">Neuer Artikel</button>
       <span class="analyze-status" id="save-status"></span>
     </div>
+    <div id="dup-warn" class="dup-warn" style="display:none;"></div>
+    <div class="muted" style="font-size:11px;margin-top:10px;">Zuletzt geöffnet</div>
+    <div class="recent-row" id="recent-items"></div>
+    <div id="ai-confidence" class="confidence-box" style="display:none;"></div>
+    <div id="photo-quality" class="confidence-box" style="display:none;margin-top:6px;"></div>
   </div>
 
   <div class="panel" id="step-panel-2" data-step-panel="2">
@@ -432,6 +480,7 @@
       <span class="value" id="market-price">–</span>
     </div>
     <div style="font-size:11px; color:var(--ink-muted); margin-top:4px;">✨ = KI-Schätzung · ohne Symbol = von dir eingetragener echter Vergleichspreis</div>
+    <div class="price-hist" id="price-history"></div>
   </div>
 
   <div class="panel" id="correction-panel">
@@ -501,6 +550,10 @@
       <button class="ghost" onclick="generateTitle()" id="title-btn">Titel generieren</button>
       <button class="ghost" onclick="generateTitleVariants()" id="title-variants-btn">3 Varianten</button>
       <button class="ghost" onclick="copyTitle()">Kopieren</button>
+      <span class="lang-toggle" title="Titelsprache">
+        <button type="button" class="ghost active" id="lang-de" onclick="setTitleLang('de')">DE</button>
+        <button type="button" class="ghost" id="lang-en" onclick="setTitleLang('en')">EN</button>
+      </span>
       <span class="analyze-status" id="title-status"></span>
     </div>
     <div id="title-variants" class="title-variants" style="display:none;"></div>
@@ -645,7 +698,45 @@
       <button class="primary" onclick="exportTaxExcel()">📊 Steuer-Export für Excel</button>
       <input id="import-file" type="file" accept=".json,application/json" style="display:none" onchange="importBackup(this.files[0])" />
     </div>
-    <div class="inventory-toolbar"><input id="inventory-search" placeholder="🔎 Marke oder Artikel suchen" oninput="renderInventory()"><select id="inventory-filter" onchange="renderInventory()"><option value="">Alle Status</option><option>geplant</option><option>eingestellt</option><option>verkauft</option><option>nicht verkauft</option><option>archiviert</option></select><select id="inventory-sort" onchange="renderInventory()"><option value="new">Neueste zuerst</option><option value="profit">Gewinn absteigend</option><option value="name">Name A–Z</option></select><select id="tax-period"><option value="all">Steuerzeitraum: alle</option><option value="year">Dieses Jahr</option><option value="month">Dieser Monat</option></select></div><div id="storage-info" class="muted" style="font-size:11px;margin-bottom:10px;"></div>
+    <div class="inventory-toolbar">
+      <input id="inventory-search" placeholder="🔎 Marke, Artikel, Nr. suchen" oninput="renderInventory()">
+      <select id="inventory-filter" onchange="renderInventory()">
+        <option value="">Alle Status</option>
+        <option>geplant</option><option>eingestellt</option><option>verkauft</option>
+        <option>nicht verkauft</option><option>archiviert</option>
+      </select>
+      <select id="inventory-extra-filter" onchange="renderInventory()">
+        <option value="">Alle Artikel</option>
+        <option value="no-price">Ohne Marktpreis</option>
+        <option value="no-photos">Ohne Fotos</option>
+        <option value="no-ek">Ohne EK</option>
+        <option value="dead">Dead Stock ≥30T</option>
+        <option value="listed">Nur eingestellt</option>
+      </select>
+      <select id="inventory-sort" onchange="renderInventory()">
+        <option value="new">Neueste zuerst</option>
+        <option value="profit">Gewinn absteigend</option>
+        <option value="name">Name A–Z</option>
+        <option value="age">Älteste zuerst</option>
+      </select>
+      <select id="tax-period">
+        <option value="all">Steuerzeitraum: alle</option>
+        <option value="year">Dieses Jahr</option>
+        <option value="month">Dieser Monat</option>
+      </select>
+    </div>
+    <div class="bulk-bar" id="bulk-bar">
+      <label style="font-size:12px;color:var(--ink-muted);"><input type="checkbox" id="bulk-select-all" onchange="toggleSelectAllInventory(this.checked)"> alle sichtbaren</label>
+      <span id="bulk-count" class="muted" style="font-size:12px;">0 gewählt</span>
+      <button class="ghost" onclick="bulkSetStatus('eingestellt')">→ Eingestellt</button>
+      <button class="ghost" onclick="bulkSetStatus('archiviert')">→ Archiv</button>
+      <button class="ghost" onclick="bulkSetStatus('geplant')">→ Geplant</button>
+      <button class="ghost" onclick="bulkClearSelection()">Auswahl weg</button>
+    </div>
+    <div id="storage-info" class="muted" style="font-size:11px;margin-bottom:10px;"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="ghost" onclick="exportSalesMonthExcel()">📤 Nur Verkäufe Monat exportieren</button>
+    </div>
     <div id="inventory-list" class="inventory-grid"></div>
   </div>
 </div>
@@ -655,7 +746,16 @@
   <div class="top-row"><h1>Vorhandene Marken und Artikel</h1></div><hr class="divider" />
   <div class="panel"><p style="font-size:12px;color:var(--ink-muted);">Hier kannst du Marken und Artikel mit Bild und echter Preisrange als Referenz speichern. Diese Werte werden bei ähnlichen Artikeln künftig als lokales Preiswissen verwendet.</p>
     <h2>Marke / Artikel hinzufügen</h2>
-    <div class="grid-fields"><div><label class="field-label">Marke</label><input id="lib-brand" placeholder="z.B. Fred Perry" /></div><div><label class="field-label">Artikel / Modell</label><input id="lib-name" placeholder="z.B. Quarter Zip Sweatshirt" /></div><div><label class="field-label">Kategorie</label><input id="lib-category" placeholder="z.B. Sweatshirt" /></div><div><label class="field-label">Preis von (€)</label><input id="lib-low" type="number" min="0" step="0.01" placeholder="35" /></div><div><label class="field-label">Preis bis (€)</label><input id="lib-high" type="number" min="0" step="0.01" placeholder="55" /></div></div>
+    <div class="grid-fields">
+      <div><label class="field-label">Marke</label><input id="lib-brand" placeholder="z.B. Fred Perry" /></div>
+      <div><label class="field-label">Artikel / Modell</label><input id="lib-name" placeholder="z.B. Quarter Zip Sweatshirt" /></div>
+      <div><label class="field-label">Kategorie</label><input id="lib-category" placeholder="z.B. Sweatshirt" /></div>
+      <div><label class="field-label">Preis von (€)</label><input id="lib-low" type="number" min="0" step="0.01" placeholder="35" /></div>
+      <div><label class="field-label">Preis bis (€)</label><input id="lib-high" type="number" min="0" step="0.01" placeholder="55" /></div>
+      <div><label class="field-label">Titel-Baustein</label><input id="lib-title-tpl" placeholder="z.B. Fred Perry Vintage {category} Gr. {size}" /></div>
+      <div><label class="field-label">Extra-Hashtags</label><input id="lib-tags" placeholder="fredperry twin tip mod" /></div>
+      <div><label class="field-label">Details-Bullets (• je Zeile)</label><input id="lib-details" placeholder="• Twin-Tipped Bündchen" /></div>
+    </div>
     <label class="field-label" style="margin-top:10px;">Beispielbild (optional)</label><input id="lib-image" type="file" accept="image/*" onchange="handleLibraryImage(this.files[0])" /><div id="lib-image-preview" class="photo-strip"></div>
     <div style="margin-top:10px;"><button class="primary" onclick="saveLibraryReference()">Marke / Artikel speichern</button><span id="lib-status" class="analyze-status" style="margin-left:8px;"></span></div>
     <div id="learning-insights" class="metric-grid" style="margin-top:16px;"></div><div id="correction-library-slot" style="margin-top:16px;"></div></div>
@@ -731,6 +831,11 @@ const CORRECTIONS_KEY = 'preis-check-corrections';
 const STYLE_KEY = 'preis-check-style-template';
 const INVENTORY_KEY = 'preis-check-inventory';
 const BACKUPS_KEY = 'preis-check-backups';
+const APP_BUILD = '2026.07.19';
+const RECENT_KEY = 'preis-check-recent';
+const LEARN_KEY = 'preis-check-name-learn';
+const TITLE_LANG_KEY = 'preis-check-title-lang';
+const LAST_BACKUP_KEY = 'preis-check-last-backup-nag';
 let pendingImage = null;
 let pendingImages = [];
 let currentItemId = null;
@@ -1137,6 +1242,12 @@ async function runTitleGeneration({ silent = false } = {}) {
     }
     if (!title) throw new Error('Leerer Titel');
     const providerLabel = getProvider() === 'groq' ? 'Groq' : 'Gemini';
+    // brand preset can override empty/generic
+    const preset=typeof applyBrandPresetToListing==='function'?applyBrandPresetToListing():null;
+    if(preset){
+      const pt=fillTitleFromPreset(preset);
+      if(pt && (!title || title.length<12)) title=pt;
+    }
     setGeneratedTitle(title, silent ? null : ('Fertig mit ' + providerLabel + '.'));
     return { source: providerLabel, title };
   } catch (err) {
@@ -1927,7 +2038,7 @@ function buildPhotoAnalyzePrompt(simple = false) {
       '{"name":"","brand":"","category":"","pattern_or_details":"","color":"","condition":"","size":"","chest_cm":null,"length_cm":null,"shoulder_cm":null,"sleeve_cm":null,"material":"","fit":"","gender":"","measurements_note":"","price_low":0,"price_high":0}. ' +
       'name = Marke + konkreter Typ + optionales Muster (NIE nur Kleidungsstück). ' +
       'condition nur: Zufriedenstellend|Gut|Sehr Gut|Neu|Neu mit Etikett. ' +
-      'size nur wenn Etikett lesbar. cm-Felder nur wenn Maßband/Maße sichtbar, sonst null. Preise in Euro als Zahlen. Kein Markdown.';
+      'size nur wenn Etikett lesbar. cm-Felder nur wenn Maßband/Maße sichtbar, sonst null. Preise in Euro als Zahlen. brand_confidence 0-1. Kein Markdown.';
   }
 
   return 'Du analysierst ' + photoCount + ' Foto(s) desselben Secondhand-Kleidungsstücks für Vinted/eBay DE. ' +
@@ -2385,13 +2496,13 @@ async function cloudSignIn(){if(!supabaseClient){cloudMessage('Supabase-Biblioth
 async function cloudSignUp(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signUp({email:document.getElementById('cloud-email').value.trim(),password:document.getElementById('cloud-password').value});cloudMessage(error?error.message:'Konto erstellt. Falls E-Mail-Bestätigung aktiv ist, bitte E-Mail bestätigen.')}
 async function cloudSignOut(){if(supabaseClient)await supabaseClient.auth.signOut();updateCloudStatus();cloudMessage('Abgemeldet.')}
 async function updateCloudStatus(){const u=await currentCloudUser();const e=document.getElementById('cloud-user-status');if(e)e.textContent=u?('angemeldet: '+u.email):'nicht angemeldet';if(u)refreshAIUsage()}
-function cloudRow(r,userId){return {id:crypto.randomUUID(),user_id:userId,article_no:r.articleNo||null,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',defects:r.defects||'',color:r.color||'',era:r.era||'',status:r.status||'geplant',platform:r.platform||'',notes:r.notes||'',ek:r.ek||0,sold_price:r.soldPrice||0,prices:r.prices||[],photos:r.photos||[],main_photo:r.mainPhoto||0,title:r.title||'',description:r.description||'',size:r.size||'',measurements:{chest:r.chest||'',length:r.length||'',shoulder:r.shoulder||'',sleeve:r.sleeve||''},updated_at:r.updated||new Date().toISOString()}}
+function cloudRow(r,userId){return {id:crypto.randomUUID(),user_id:userId,article_no:r.articleNo||null,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',defects:r.defects||'',color:r.color||'',era:r.era||'',material:r.material||'',fit:r.fit||'',gender:r.gender||'',status:r.status||'geplant',platform:r.platform||'',notes:r.notes||'',ek:r.ek||0,sold_price:r.soldPrice||0,prices:r.prices||[],price_history:r.priceHistory||[],photos:r.photos||[],main_photo:r.mainPhoto||0,title:r.title||'',description:r.description||'',size:r.size||'',listed_at:r.listedAt||null,sold_at:r.soldAt||null,measurements:{chest:r.chest||'',length:r.length||'',shoulder:r.shoulder||'',sleeve:r.sleeve||''},updated_at:r.updated||new Date().toISOString()}}
 async function uploadPhotoToCloud(src,userId,itemId,index){if(!src||src.startsWith('http'))return src;const blob=await (await fetch(src)).blob(),path=`${userId}/${itemId}/${index}.jpg`;const up=await supabaseClient.storage.from('article-images').upload(path,blob,{contentType:'image/jpeg',upsert:true});if(up.error)throw up.error;return path}
 
 async function signedPhotoUrl(path){if(!path)return '';if(path.startsWith('http')){const marker='/storage/v1/object/public/article-images/';const i=path.indexOf(marker);path=i>=0?decodeURIComponent(path.slice(i+marker.length)):path;};const r=await supabaseClient.storage.from('article-images').createSignedUrl(path,3600);return r.data?.signedUrl||''}
 async function syncAllToCloud(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}try{const local=inventoryData();const rows=await Promise.all(local.map(async r=>{const cloudId=r.cloudId||crypto.randomUUID(),photos=await Promise.all((r.photos||[]).map((x,i)=>uploadPhotoToCloud(x,u.id,cloudId,i)));const x=cloudRow({...r,photos},u.id);x.id=cloudId;return x}));const refs=loadCorrections().map(r=>({id:r.cloudId||crypto.randomUUID(),user_id:u.id,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',low:r.low,high:r.high,image:r.image||'',created_at:r.date||new Date().toISOString()}));let invoices=[];try{invoices=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(e){}invoices=invoices.map(r=>({id:r.cloudId||crypto.randomUUID(),user_id:u.id,invoice_number:r.number||'',invoice_date:r.date||new Date().toISOString().slice(0,10),customer_name:r.customer||'',customer_address:r.address||'',customer_email:r.email||'',amount:r.amount||0,payment_method:r.payment||'',status:r.status||'offen',tax_mode:r.taxMode||'kleinunternehmer'}));const a=await supabaseClient.from('inventory').upsert(rows),b=await supabaseClient.from('price_references').upsert(refs),c=await supabaseClient.from('invoices').upsert(invoices);const error=a.error||b.error||c.error;cloudMessage(error?error.message:(rows.length+' Artikel, '+refs.length+' Preisreferenzen und '+invoices.length+' Rechnungen synchronisiert.'))}catch(e){cloudMessage('Bild-Upload fehlgeschlagen: '+e.message)}}
 
-async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}const a=await supabaseClient.from('inventory').select('*').order('updated_at',{ascending:false}),b=await supabaseClient.from('price_references').select('*').order('created_at',{ascending:false}),c=await supabaseClient.from('invoices').select('*').order('created_at',{ascending:false});const error=a.error||b.error||c.error;if(error){cloudMessage(error.message);return}if(a.data?.length){const local=await Promise.all(a.data.map(async r=>({id:r.id,cloudId:r.id,articleNo:r.article_no,name:r.name,brand:r.brand,category:r.category,condition:r.condition,defects:r.defects,color:r.color||'',era:r.era||'',status:r.status,platform:r.platform||'',notes:r.notes||'',ek:Number(r.ek)||0,soldPrice:Number(r.sold_price)||0,prices:r.prices||[],photos:await Promise.all((r.photos||[]).map(signedPhotoUrl)),mainPhoto:r.main_photo||0,title:r.title||'',description:r.description||'',size:r.size||'',chest:r.measurements?.chest||'',length:r.measurements?.length||'',shoulder:r.measurements?.shoulder||'',sleeve:r.measurements?.sleeve||'',updated:r.updated_at})));saveInventoryData(local)}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)localStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
+async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}const a=await supabaseClient.from('inventory').select('*').order('updated_at',{ascending:false}),b=await supabaseClient.from('price_references').select('*').order('created_at',{ascending:false}),c=await supabaseClient.from('invoices').select('*').order('created_at',{ascending:false});const error=a.error||b.error||c.error;if(error){cloudMessage(error.message);return}if(a.data?.length){const local=await Promise.all(a.data.map(async r=>({id:r.id,cloudId:r.id,articleNo:r.article_no,name:r.name,brand:r.brand,category:r.category,condition:r.condition,defects:r.defects,color:r.color||'',era:r.era||'',status:r.status,platform:r.platform||'',notes:r.notes||'',ek:Number(r.ek)||0,soldPrice:Number(r.sold_price)||0,prices:r.prices||[],photos:await Promise.all((r.photos||[]).map(signedPhotoUrl)),mainPhoto:r.main_photo||0,title:r.title||'',description:r.description||'',size:r.size||'',material:r.material||'',fit:r.fit||'',gender:r.gender||'',priceHistory:r.price_history||[],listedAt:r.listed_at||'',soldAt:r.sold_at||'',chest:r.measurements?.chest||'',length:r.measurements?.length||'',shoulder:r.measurements?.shoulder||'',sleeve:r.measurements?.sleeve||'',updated:r.updated_at})));saveInventoryData(local)}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)localStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
 
 async function restoreCloudSession(){if(supabaseClient){await updateCloudStatus();supabaseClient.auth.onAuthStateChange(()=>updateCloudStatus())}}
 
@@ -3222,8 +3333,623 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
+
+/* ===== Feature Pack: inventory UX, business, smarter AI, stability ===== */
+function getTitleLang(){ return localStorage.getItem(TITLE_LANG_KEY) || 'de'; }
+function setTitleLang(lang){
+  localStorage.setItem(TITLE_LANG_KEY, lang === 'en' ? 'en' : 'de');
+  const de=document.getElementById('lang-de'), en=document.getElementById('lang-en');
+  if(de) de.classList.toggle('active', getTitleLang()==='de');
+  if(en) en.classList.toggle('active', getTitleLang()==='en');
+  const st=document.getElementById('title-status');
+  if(st) st.textContent = 'Titelsprache: ' + getTitleLang().toUpperCase();
+}
+function loadRecentIds(){ try{return JSON.parse(localStorage.getItem(RECENT_KEY)||'[]')}catch(e){return[]} }
+function pushRecent(id){
+  if(!id) return;
+  const arr=[id, ...loadRecentIds().filter(x=>x!==id)].slice(0,5);
+  localStorage.setItem(RECENT_KEY, JSON.stringify(arr));
+  renderRecentItems();
+}
+function renderRecentItems(){
+  const el=document.getElementById('recent-items'); if(!el) return;
+  const ids=loadRecentIds();
+  const items=ids.map(id=>inventoryData().find(x=>x.id===id)).filter(Boolean);
+  if(!items.length){ el.innerHTML='<span class="muted" style="font-size:11px">Noch keine.</span>'; return; }
+  el.innerHTML=items.map(r=>`<button type="button" class="recent-chip" onclick="loadItem('${r.id}')" title="${escapeHtml(r.name||'')}">${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Artikel')}</button>`).join('');
+}
+function loadNameLearn(){ try{return JSON.parse(localStorage.getItem(LEARN_KEY)||'{}')}catch(e){return{}} }
+function saveNameLearn(map){ localStorage.setItem(LEARN_KEY, JSON.stringify(map)); }
+function rememberNameCorrection(fromName, toName, brand, category){
+  fromName=String(fromName||'').trim(); toName=String(toName||'').trim();
+  if(!toName || isGenericItemName(toName)) return;
+  if(fromName && fromName.toLowerCase()===toName.toLowerCase()) return;
+  const map=loadNameLearn();
+  const key=(brand||'').toLowerCase()+'|'+(category||fromName||'').toLowerCase();
+  map[key]={ name:toName, brand:brand||'', category:category||'', at:new Date().toISOString() };
+  if(fromName && isGenericItemName(fromName)) map['generic|'+(brand||'').toLowerCase()]={ name:toName, brand:brand||'', category:category||'', at:new Date().toISOString() };
+  saveNameLearn(map);
+}
+function applyLearnedName(brand, category, currentName){
+  const map=loadNameLearn();
+  const k1=(brand||'').toLowerCase()+'|'+(category||'').toLowerCase();
+  const k2='generic|'+(brand||'').toLowerCase();
+  const hit=map[k1]||map[k2];
+  if(hit && hit.name && (isGenericItemName(currentName) || !currentName)) return hit.name;
+  return currentName;
+}
+function markRequiredFields(){
+  let ok=true;
+  const pairs=[['f-name','wrap-name'],['f-brand','wrap-brand'],['f-category','wrap-category']];
+  // mark parent wrappers by walking up
+  ['f-name','f-brand','f-category'].forEach(id=>{
+    const input=document.getElementById(id); if(!input) return;
+    const wrap=input.closest('div');
+    const empty=!input.value.trim() || (id==='f-name' && isGenericItemName(input.value));
+    if(wrap) wrap.classList.toggle('field-error', empty);
+    if(empty) ok=false;
+  });
+  const photoOk=pendingImages.length>0;
+  const dz=document.getElementById('dropzone');
+  if(dz) dz.style.borderColor = photoOk ? '' : 'var(--danger)';
+  if(!photoOk) ok=false;
+  return ok;
+}
+function clearRequiredMarks(){
+  document.querySelectorAll('.field-error').forEach(n=>n.classList.remove('field-error'));
+  const dz=document.getElementById('dropzone'); if(dz) dz.style.borderColor='';
+}
+function findSimilarItems(rec){
+  const b=(rec.brand||'').toLowerCase();
+  const c=(rec.category||'').toLowerCase();
+  const n=(rec.name||'').toLowerCase();
+  const col=(rec.color||'').toLowerCase();
+  if(!b && !c && !n) return [];
+  return inventoryData().filter(x=>{
+    if(rec.id && x.id===rec.id) return false;
+    const xb=(x.brand||'').toLowerCase();
+    const xc=(x.category||'').toLowerCase();
+    const xn=(x.name||'').toLowerCase();
+    const xcol=(x.color||'').toLowerCase();
+    const brandOk = b && xb && xb===b;
+    const catOk = c && xc && (xc===c || xc.includes(c) || c.includes(xc));
+    const nameOk = n && xn && (xn===n || xn.includes(n.slice(0,12)) || n.includes(xn.slice(0,12)));
+    const colorOk = !col || !xcol || col===xcol;
+    return brandOk && (catOk || nameOk) && colorOk;
+  }).slice(0,5);
+}
+function showDupWarn(list){
+  const el=document.getElementById('dup-warn'); if(!el) return;
+  if(!list||!list.length){ el.style.display='none'; el.innerHTML=''; return; }
+  el.style.display='block';
+  el.innerHTML='⚠️ Ähnlich im Inventar: '+list.map(x=>`<a href="#" onclick="event.preventDefault();loadItem('${x.id}')" style="color:var(--gold)">${escapeHtml(x.articleNo||'')} ${escapeHtml(x.name||x.brand||'')}</a>`).join(' · ');
+}
+function pushPriceHistory(item, note){
+  if(!item) return;
+  if(!Array.isArray(item.priceHistory)) item.priceHistory=[];
+  const m=median(item.prices||[]);
+  item.priceHistory.unshift({ at:new Date().toISOString(), market:m, sold:item.soldPrice||0, status:item.status||'', note:note||'' });
+  item.priceHistory=item.priceHistory.slice(0,20);
+}
+function renderPriceHistoryForCurrent(){
+  const el=document.getElementById('price-history'); if(!el) return;
+  if(!currentItemId){ el.innerHTML=''; return; }
+  const r=inventoryData().find(x=>x.id===currentItemId);
+  const hist=r?.priceHistory||[];
+  if(!hist.length){ el.innerHTML='<span class="muted">Noch keine Preis-Historie für diesen Artikel.</span>'; return; }
+  el.innerHTML=hist.slice(0,8).map(h=>`${new Date(h.at).toLocaleDateString('de-DE')}: Markt ${fmtEUR(h.market)} · Status ${escapeHtml(h.status||'–')}${h.sold? ' · VK '+fmtEUR(h.sold):''}${h.note?' · '+escapeHtml(h.note):''}`).join('<br>');
+}
+function estimatePhotoQuality(){
+  // Heuristik über Helligkeit/Kontrast der Hauptbilder (canvas)
+  return new Promise(async (resolve)=>{
+    try{
+      const srcs=(pendingImages||[]).slice(0,3);
+      if(!srcs.length){ resolve({ok:false, msg:'Kein Foto.'}); return; }
+      let dark=0, lowVar=0, n=0;
+      for(const src of srcs){
+        const stats=await new Promise((res)=>{
+          const img=new Image();
+          img.onload=()=>{
+            const c=document.createElement('canvas');
+            const w=64,h=64; c.width=w; c.height=h;
+            const ctx=c.getContext('2d'); ctx.drawImage(img,0,0,w,h);
+            const d=ctx.getImageData(0,0,w,h).data;
+            let sum=0, sum2=0, count=w*h;
+            for(let i=0;i<d.length;i+=4){
+              const y=0.299*d[i]+0.587*d[i+1]+0.114*d[i+2];
+              sum+=y; sum2+=y*y;
+            }
+            const mean=sum/count; const v=Math.max(0,sum2/count-mean*mean);
+            res({mean, std:Math.sqrt(v)});
+          };
+          img.onerror=()=>res(null);
+          img.src=src;
+        });
+        if(!stats) continue;
+        n++;
+        if(stats.mean<55) dark++;
+        if(stats.std<28) lowVar++;
+      }
+      if(!n){ resolve({ok:true, msg:''}); return; }
+      const issues=[];
+      if(dark/n>=0.5) issues.push('Foto wirkt dunkel');
+      if(lowVar/n>=0.5) issues.push('wenig Kontrast / evtl. unscharf oder Etikett schwer lesbar');
+      if(issues.length) resolve({ok:false, level:'low', msg:'📷 Foto-Qualität: '+issues.join(' · ')+'. Besser: helles Etikett-Foto + Vorderseite.'});
+      else resolve({ok:true, level:'high', msg:'📷 Foto-Qualität wirkt okay.'});
+    }catch(e){ resolve({ok:true, msg:''}); }
+  });
+}
+function showPhotoQuality(q){
+  const el=document.getElementById('photo-quality'); if(!el) return;
+  if(!q||!q.msg){ el.style.display='none'; return; }
+  el.style.display='block';
+  el.className='confidence-box '+(q.level|| (q.ok?'high':'low'));
+  el.textContent=q.msg;
+}
+function showConfidence(info){
+  const el=document.getElementById('ai-confidence'); if(!el) return;
+  if(!info){ el.style.display='none'; return; }
+  el.style.display='block';
+  const pct=Math.round((info.score||0)*100);
+  el.className='confidence-box '+(pct>=75?'high':pct>=50?'mid':'low');
+  el.textContent=`🔎 KI-Sicherheit ca. ${pct}% · ${info.note||''}`;
+}
+function scoreAnalysisConfidence(parsed, brand, category, name){
+  let s=0.25; const notes=[];
+  if(brand) { s+=0.3; } else { notes.push('Marke unsicher'); }
+  if(category && !isGenericCategory(category)) s+=0.2; else notes.push('Typ unsicher');
+  if(name && !isGenericItemName(name)) s+=0.15;
+  if(parsed?.size) s+=0.05;
+  if(parsed?.color) s+=0.05;
+  if(parsed?.chest_cm || parsed?.length_cm) s+=0.05;
+  if(parsed?.brand_confidence!=null){
+    const bc=Number(parsed.brand_confidence);
+    if(Number.isFinite(bc)) s = Math.max(s, Math.min(0.95, bc>1?bc/100:bc));
+  }
+  s=Math.max(0.05, Math.min(0.98, s));
+  if(s<0.55) notes.unshift('Bitte Marke/Artikel manuell prüfen');
+  else if(s<0.75) notes.unshift('Mittel – kurz gegen Etikett checken');
+  else notes.unshift('Sieht stimmig aus');
+  return { score:s, note:notes.slice(0,2).join(' · ') };
+}
+
+// Override/extend save library with presets
+const _saveLibraryReferenceOrig = typeof saveLibraryReference === 'function' ? saveLibraryReference : null;
+window.saveLibraryReference = function(){
+  const brand=document.getElementById('lib-brand').value.trim();
+  const name=document.getElementById('lib-name').value.trim();
+  const category=document.getElementById('lib-category').value.trim();
+  const low=parseFloat(document.getElementById('lib-low').value);
+  const high=parseFloat(document.getElementById('lib-high').value);
+  const titleTpl=(document.getElementById('lib-title-tpl')?.value||'').trim();
+  const tags=(document.getElementById('lib-tags')?.value||'').trim();
+  const details=(document.getElementById('lib-details')?.value||'').trim();
+  const st=document.getElementById('lib-status');
+  if(!brand&&!name&&!category){st.textContent='Bitte Marke, Artikel oder Kategorie eintragen.';return}
+  if(!Number.isFinite(low)||low<=0){st.textContent='Bitte mindestens einen gültigen Preis eintragen.';return}
+  const list=loadCorrections();
+  list.unshift({
+    id:Date.now().toString(36), name, brand, category, condition:'',
+    low, high:Number.isFinite(high)&&high>0?high:low,
+    image:libraryImage||'', date:new Date().toISOString(),
+    titleTpl, tags, details
+  });
+  saveCorrections(list.slice(0,100));
+  st.textContent='Gespeichert inkl. Marken-Preset.';
+  ['lib-brand','lib-name','lib-category','lib-low','lib-high','lib-title-tpl','lib-tags','lib-details'].forEach(id=>{const e=document.getElementById(id); if(e)e.value=''});
+  libraryImage=null; const p=document.getElementById('lib-image-preview'); if(p)p.innerHTML='';
+  renderCorrections(); renderLearningInsights();
+};
+function findBrandPreset(brand, category){
+  const b=(brand||'').toLowerCase(); const c=(category||'').toLowerCase();
+  const list=loadCorrections();
+  return list.find(x=>{
+    const xb=(x.brand||'').toLowerCase();
+    const xc=(x.category||'').toLowerCase();
+    return b && xb===b && (x.titleTpl || x.tags || x.details) && (!c || !xc || xc===c || xc.includes(c) || c.includes(xc));
+  }) || list.find(x=>b && (x.brand||'').toLowerCase()===b && (x.titleTpl||x.tags||x.details));
+}
+function applyBrandPresetToListing(){
+  const brand=document.getElementById('f-brand')?.value.trim();
+  const category=document.getElementById('f-category')?.value.trim();
+  const preset=findBrandPreset(brand, category);
+  if(!preset) return null;
+  // tags merge into description later; title template available
+  return preset;
+}
+function fillTitleFromPreset(preset){
+  if(!preset?.titleTpl) return '';
+  const f=getTitleFields();
+  return preset.titleTpl
+    .replace(/\{brand\}/gi, f.brand||preset.brand||'')
+    .replace(/\{category\}/gi, f.category||preset.category||'')
+    .replace(/\{name\}/gi, f.name||'')
+    .replace(/\{size\}/gi, f.size||'')
+    .replace(/\{color\}/gi, f.color||'')
+    .replace(/\{era\}/gi, f.era||'y2k vintage retro streetwear')
+    .replace(/\s+/g,' ').trim();
+}
+
+// Inventory selection bulk
+window._invSelected = new Set();
+function syncBulkBar(){
+  const bar=document.getElementById('bulk-bar');
+  const count=document.getElementById('bulk-count');
+  const n=window._invSelected.size;
+  if(bar) bar.classList.toggle('open', n>0);
+  if(count) count.textContent=n+' gewählt';
+}
+function toggleInvSelect(id, checked){
+  if(checked) window._invSelected.add(id); else window._invSelected.delete(id);
+  syncBulkBar();
+}
+function toggleSelectAllInventory(checked){
+  document.querySelectorAll('#inventory-list .inv-check').forEach(cb=>{
+    cb.checked=checked; toggleInvSelect(cb.getAttribute('data-id'), checked);
+  });
+  if(!checked){ window._invSelected.clear(); syncBulkBar(); }
+}
+function bulkClearSelection(){ window._invSelected.clear(); renderInventory(); syncBulkBar(); }
+function bulkSetStatus(status){
+  if(!window._invSelected.size) return;
+  if(status==='verkauft'){ showToast('Verkauft bitte einzeln (Preis nötig)'); return; }
+  const l=inventoryData(); const now=new Date().toISOString();
+  let n=0;
+  l.forEach(r=>{
+    if(!window._invSelected.has(r.id)) return;
+    r.status=status; r.updated=now;
+    if(status==='eingestellt' && !r.listedAt) r.listedAt=now;
+    pushPriceHistory(r, 'Bulk-Status '+status);
+    n++;
+  });
+  saveInventoryData(l); window._invSelected.clear(); renderInventory(); renderStats(); showToast(n+' Artikel → '+status);
+}
+
+// Enhanced renderInventory replacement hook via monkeypatch after original exists - we redefine fully below by string replace later
+
+function exportSalesMonthExcel(){
+  if(!window.XLSX){ alert('Excel-Modul nicht geladen'); return; }
+  const now=new Date();
+  const ym=prompt('Monat exportieren als YYYY-MM', now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0'));
+  if(!ym||!/^\d{4}-\d{2}$/.test(ym)) return;
+  const [Y,M]=ym.split('-').map(Number);
+  const sold=inventoryData().filter(r=>{
+    if(!(Number(r.soldPrice)>0 || r.status==='verkauft')) return false;
+    const d=new Date(r.soldAt||r.updated||0);
+    return d.getFullYear()===Y && (d.getMonth()+1)===M;
+  });
+  const rows=[['Datum','Artikelnummer','Artikel','Marke','Kategorie','Plattform','Verkaufspreis','EK','Gewinn','Status'],
+    ...sold.map(r=>[
+      new Date(r.soldAt||r.updated||Date.now()).toLocaleDateString('de-DE'),
+      r.articleNo||r.id, r.name||'', r.brand||'', r.category||'', r.platform||'',
+      Number(r.soldPrice)||0, Number(r.ek)||0, (Number(r.soldPrice)||0)-(Number(r.ek)||0), r.status||'verkauft'
+    ])];
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  XLSX.utils.book_append_sheet(wb, ws, 'Verkaeufe-'+ym);
+  XLSX.writeFile(wb, 'verkaeufe-'+ym+'.xlsx');
+  showToast('Export '+ym+' · '+sold.length+' Verkäufe');
+}
+
+function maybeWeeklyBackupNag(){
+  try{
+    const last=localStorage.getItem(LAST_BACKUP_KEY);
+    const now=Date.now();
+    if(last && now-Number(last)<7*86400000) return;
+    if(!inventoryData().length) return;
+    localStorage.setItem(LAST_BACKUP_KEY, String(now));
+    setTimeout(()=>{
+      if(confirm('Wöchentliche Erinnerung: Backup exportieren? (Inventar + Preiswissen als JSON)')) exportBackup();
+    }, 1200);
+  }catch(e){}
+}
+
+function makeThumb(dataUrl, maxDim=180, quality=0.6){
+  return resizeImage(dataUrl, maxDim, quality);
+}
+async function compressPhotosForStorage(photos){
+  const out=[];
+  for(const p of (photos||[]).slice(0, MAX_PHOTOS)){
+    try{
+      // already small-ish; create thumb-like compression for local store
+      out.push(await resizeImage(p, 700, 0.62));
+    }catch(e){ out.push(p); }
+  }
+  return out;
+}
+
+// Patch buildTitlePrompt usage via wrapping generateLocalTitle / buildTitlePrompt if exist
+const _buildTitlePrompt = typeof buildTitlePrompt === 'function' ? buildTitlePrompt : null;
+if(_buildTitlePrompt){
+  window.buildTitlePrompt = function(){
+    const base=_buildTitlePrompt();
+    const lang=getTitleLang();
+    const preset=applyBrandPresetToListing();
+    let extra = lang==='en'
+      ? ' Write the title in ENGLISH. Example: "Fred Perry Vintage Polo Shirt Size S Khaki in retro y2k streetwear style".'
+      : ' Schreibe den Titel auf DEUTSCH.';
+    if(preset?.titleTpl) extra += ' Prefer this brand template style: '+preset.titleTpl;
+    return base + extra;
+  };
+}
+
+// 2-stage analysis wrapper
+const _runPhotoAnalysis = runPhotoAnalysis;
+runPhotoAnalysis = async function(opts={}){
+  const silent=!!opts.silent;
+  // photo quality first
+  const q=await estimatePhotoQuality();
+  showPhotoQuality(q);
+  if(!silent && q && q.ok===false){
+    // non-blocking warning
+  }
+  // stage 1: identity only if we will call underlying with enhanced prompts already in buildPhotoAnalyzePrompt
+  const beforeName=document.getElementById('f-name')?.value.trim()||'';
+  const result=await _runPhotoAnalysis(opts);
+  // apply learning
+  let name=document.getElementById('f-name')?.value.trim()||'';
+  const brand=document.getElementById('f-brand')?.value.trim()||'';
+  const category=document.getElementById('f-category')?.value.trim()||'';
+  const learned=applyLearnedName(brand, category, name);
+  if(learned && learned!==name){
+    document.getElementById('f-name').value=learned;
+    name=learned;
+  }
+  // confidence
+  const conf=scoreAnalysisConfidence(result || {}, brand, category, name);
+  showConfidence(conf);
+  // if generic name still, try stage2 lightweight rename from brand+category
+  if(isGenericItemName(document.getElementById('f-name').value)){
+    document.getElementById('f-name').value=buildSmartItemName(brand, category||'Sweater', '', '');
+  }
+  // track manual correction later on blur
+  window._lastAiName=document.getElementById('f-name').value.trim();
+  clearRequiredMarks();
+  return result;
+};
+
+// learn when user edits name after AI
+document.addEventListener('change', (e)=>{
+  if(e.target && e.target.id==='f-name'){
+    const to=e.target.value.trim();
+    const from=window._lastAiName||'';
+    rememberNameCorrection(from, to, document.getElementById('f-brand')?.value.trim(), document.getElementById('f-category')?.value.trim());
+    window._lastAiName=to;
+  }
+});
+
+// wrap generateAllListing validation
+const _generateAllListing = generateAllListing;
+generateAllListing = async function(){
+  if(!markRequiredFields() && !(pendingImages.length && getApiKey())){
+    // still allow if photos+key even if fields empty (AI fills them)
+  }
+  if(!pendingImages.length){
+    markRequiredFields();
+    showToast('Bitte zuerst Fotos hinzufügen');
+    return;
+  }
+  if(!getApiKey()){ openSettings(); return; }
+  return _generateAllListing();
+};
+
+// wrap saveCurrentItem for similarity + listed + compressed photos + history
+const _saveCurrentItem = saveCurrentItem;
+saveCurrentItem = function(options={}){
+  // required soft check
+  const name=document.getElementById('f-name')?.value.trim()||'';
+  const brand=document.getElementById('f-brand')?.value.trim()||'';
+  const category=document.getElementById('f-category')?.value.trim()||'';
+  if((!name&&!brand&&!category) || isGenericItemName(name) && !brand && !category){
+    markRequiredFields();
+    document.getElementById('save-status').textContent='Pflichtfelder: Artikel/Marke/Kategorie.';
+    return false;
+  }
+  if(isGenericItemName(name) && (brand||category)){
+    document.getElementById('f-name').value=buildSmartItemName(brand, category, '', name);
+  }
+  // similarity
+  const draft={
+    id: currentItemId,
+    brand, category, name: document.getElementById('f-name').value.trim(),
+    color: document.getElementById('f-color')?.value.trim()||''
+  };
+  const sims=findSimilarItems(draft);
+  showDupWarn(sims);
+  if(sims.length && !options.quiet && !options.force){
+    if(!confirm('Es gibt ähnliche Artikel im Inventar. Trotzdem speichern?')) return false;
+  }
+  // compress photos async-safe: do sync best-effort via existing sizes
+  const ok=_saveCurrentItem({...options, quiet:true});
+  if(!ok) return false;
+  // post-process saved row: history + recent + listedAt already in currentRecord
+  const l=inventoryData();
+  const r=l.find(x=>x.id===currentItemId);
+  if(r){
+    pushPriceHistory(r, options.listed?'Eingestellt':'Gespeichert');
+    // apply brand preset tags into description once if empty-ish
+    const preset=findBrandPreset(r.brand, r.category);
+    if(preset?.tags && r.description && !r.description.includes('#'+String(preset.tags).split(/\s+/)[0])){
+      // non-invasive: skip auto-append to avoid dupes; user can regenerate
+    }
+    saveInventoryData(l);
+    pushRecent(r.id);
+    renderPriceHistoryForCurrent();
+  }
+  document.getElementById('save-status').textContent = options.quiet ? 'Gespeichert.' : (options.listed ? 'Als eingestellt gespeichert.' : 'Gespeichert.');
+  if(!options.quiet) showToast(options.listed ? 'Eingestellt ✓' : 'Gespeichert ✓');
+  renderStats();
+  return true;
+};
+window.saveAsListed = function(){
+  document.getElementById('f-status').value='eingestellt';
+  return saveCurrentItem({ listed:true });
+};
+
+// Enhanced inventory renderer
+const _renderInventory = renderInventory;
+renderInventory = function(){
+  const e=document.getElementById('inventory-list'); if(!e) return;
+  const all=inventoryData();
+  const q=(document.getElementById('inventory-search')?.value||'').toLowerCase();
+  const f=document.getElementById('inventory-filter')?.value||'';
+  const extra=document.getElementById('inventory-extra-filter')?.value||'';
+  const sort=document.getElementById('inventory-sort')?.value||'new';
+  let l=all.filter(r=>{
+    const textOk=!q||[r.name,r.brand,r.category,r.articleNo,r.color,r.notes].join(' ').toLowerCase().includes(q);
+    const stOk=!f||r.status===f;
+    if(!textOk||!stOk) return false;
+    const age=itemAgeDays(r);
+    if(extra==='no-price') return !(Array.isArray(r.prices)&&r.prices.length);
+    if(extra==='no-photos') return !(Array.isArray(r.photos)&&r.photos.length);
+    if(extra==='no-ek') return !(Number(r.ek)>0);
+    if(extra==='dead') return !['verkauft','archiviert','nicht verkauft'].includes(r.status||'geplant') && age!=null && age>=30;
+    if(extra==='listed') return (r.status||'')==='eingestellt';
+    return true;
+  });
+  l.sort((a,b)=>{
+    if(sort==='name') return String(a.name||'').localeCompare(String(b.name||''));
+    if(sort==='profit') return ((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0));
+    if(sort==='age') return String(a.updated||'').localeCompare(String(b.updated||''));
+    return String(b.updated||'').localeCompare(String(a.updated||''));
+  });
+  if(!l.length){ e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>'; updateStorageInfo(all); syncBulkBar(); return; }
+  e.innerHTML=l.map(r=>{
+    const m=median(r.prices||[]); const profit=(r.soldPrice||0)-(r.ek||0);
+    const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;
+    const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';
+    const st=r.status||'geplant';
+    const age=itemAgeDays(r);
+    const checked=window._invSelected.has(r.id)?'checked':'';
+    const badges=[];
+    if(!(r.prices||[]).length) badges.push('ohne Preis');
+    if(!(r.photos||[]).length) badges.push('ohne Foto');
+    if(!(Number(r.ek)>0)) badges.push('ohne EK');
+    if(age!=null && age>=30 && !['verkauft','archiviert'].includes(st)) badges.push(age+'T');
+    return `<div class="inventory-card">
+      <input type="checkbox" class="inv-check" data-id="${r.id}" ${checked} onchange="toggleInvSelect('${r.id}', this.checked)">
+      ${img}
+      <h3>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3>
+      <p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p>
+      <p>Status: <b>${escapeHtml(st)}</b>${r.platform?' · '+escapeHtml(r.platform):''}${age!=null?' · '+age+'T':''}</p>
+      ${badges.length?`<p style="color:var(--gold);font-size:11px">${badges.join(' · ')}</p>`:''}
+      <p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>
+      ${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}
+      <div class="status-quick">
+        <button type="button" class="${statusChipClass(st,'eingestellt')}" onclick="quickSetStatus('${r.id}','eingestellt')">Eingestellt</button>
+        <button type="button" class="${statusChipClass(st,'verkauft')}" onclick="quickSetStatus('${r.id}','verkauft')">Verkauft</button>
+        <button type="button" class="${statusChipClass(st,'archiviert')}" onclick="quickSetStatus('${r.id}','archiviert')">Archiv</button>
+        <button type="button" class="${statusChipClass(st,'geplant')}" onclick="quickSetStatus('${r.id}','geplant')">Geplant</button>
+      </div>
+      <div class="inventory-actions">
+        <button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button>
+        <button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button>
+        <button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button>
+        <button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button>
+      </div>
+    </div>`;
+  }).join('');
+  updateStorageInfo(all); syncBulkBar();
+};
+
+// Enhanced stats
+const _renderStats = renderStats;
+renderStats = function(){
+  _renderStats();
+  const el=document.getElementById('stats-content'); if(!el) return;
+  const l=inventoryData();
+  const now=new Date();
+  const startWeek=new Date(now); startWeek.setDate(now.getDate()-((now.getDay()+6)%7)); startWeek.setHours(0,0,0,0);
+  const weekItems=l.filter(r=> new Date(r.updated||0)>=startWeek);
+  const weekEk=weekItems.reduce((a,r)=>a+(Number(r.ek)||0),0);
+  const weekSold=l.filter(r=>(Number(r.soldPrice)>0||r.status==='verkauft') && new Date(r.soldAt||r.updated||0)>=startWeek);
+  const weekRev=weekSold.reduce((a,r)=>a+(Number(r.soldPrice)||0),0);
+  const weekProfit=weekSold.reduce((a,r)=>a+((Number(r.soldPrice)||0)-(Number(r.ek)||0)),0);
+
+  // top/flop by margin %
+  const sold=l.filter(x=>Number(x.soldPrice)>0);
+  const byBrand={};
+  sold.forEach(x=>{
+    const b=x.brand||'Ohne Marke';
+    if(!byBrand[b]) byBrand[b]={profit:0, ek:0, n:0};
+    byBrand[b].profit += (Number(x.soldPrice)||0)-(Number(x.ek)||0);
+    byBrand[b].ek += (Number(x.ek)||0);
+    byBrand[b].n++;
+  });
+  const margins=Object.entries(byBrand).map(([k,v])=>({k, margin:v.ek>0?(v.profit/v.ek*100):0, profit:v.profit, n:v.n})).filter(x=>x.n>=1);
+  const top=margins.slice().sort((a,b)=>b.margin-a.margin).slice(0,5);
+  const flop=margins.slice().sort((a,b)=>a.margin-b.margin).slice(0,5);
+
+  // break-even sample
+  const feePct=getFeePct(); const feeFixed=getFeeFixed();
+  const sampleMarket=50;
+  const net=sampleMarket - sampleMarket*feePct/100 - feeFixed;
+  const be = net>0 ? net : 0;
+
+  // weekly article goal
+  let goals={revenue:1000, profit:300, articlesWeek:10};
+  try{ goals={...goals, ...JSON.parse(localStorage.getItem('preis-check-goals')||'{}')}; }catch(e){}
+  const artGoal=Number(goals.articlesWeek)||10;
+  const listedWeek=l.filter(r=>(r.status==='eingestellt'||r.status==='verkauft') && new Date(r.listedAt||r.updated||0)>=startWeek).length;
+  const artPct=Math.min(100, Math.round(listedWeek/artGoal*100));
+
+  const extra=`
+    <h2 style="margin-top:18px">Cashflow diese Woche</h2>
+    <div class="metric-grid">
+      <div class="metric"><span class="muted">EK bewegt / erfasst</span><strong>${fmtEUR(weekEk)}</strong></div>
+      <div class="metric"><span class="muted">Umsatz</span><strong>${fmtEUR(weekRev)}</strong></div>
+      <div class="metric"><span class="muted">Gewinn</span><strong>${fmtEUR(weekProfit)}</strong></div>
+      <div class="metric"><span class="muted">Listings/Verkäufe gesetzt</span><strong>${listedWeek}</strong></div>
+    </div>
+    <h2 style="margin-top:18px">Wochenziel Artikel</h2>
+    <div class="grid-fields" style="margin-bottom:8px;">
+      <div><label class="field-label">Artikel / Woche</label><input id="goal-articles-week" type="number" min="0" step="1" value="${artGoal}" onchange="saveGoals()" /></div>
+    </div>
+    <div class="stat-line"><span class="label">Diese Woche eingestellt/verkauft</span><span class="value">${listedWeek} · ${artPct}%</span></div>
+    <div class="storage-bar" style="margin:6px 0 10px"><span style="width:${artPct}%;background:var(--gold)"></span></div>
+
+    <h2 style="margin-top:18px">Break-even (aktuell ${feePct}% + ${fmtEUR(feeFixed)} fix)</h2>
+    <p style="font-size:12px;color:var(--ink-muted);">Bei Verkaufspreis ${fmtEUR(sampleMarket)} bleibt netto ca. <b style="color:var(--ink)">${fmtEUR(net)}</b> – darüber liegt dein sinnvoller Max-EK (siehe Ergebnis-Box, skaliert mit Marktpreis).</p>
+    <div class="stat-line"><span class="label">Netto-Quote</span><span class="value">${sampleMarket?((net/sampleMarket)*100).toFixed(1):'–'}%</span></div>
+
+    <h2 style="margin-top:18px">Top Marken nach Marge %</h2>
+    ${top.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.k)} · n=${x.n}</span><span class="value">${x.margin.toFixed(1)}% · ${fmtEUR(x.profit)}</span></div>`).join('') || '<span class="muted" style="font-size:12px">Noch keine Daten.</span>'}
+    <h2 style="margin-top:18px">Flop Marken nach Marge %</h2>
+    ${flop.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.k)} · n=${x.n}</span><span class="value">${x.margin.toFixed(1)}% · ${fmtEUR(x.profit)}</span></div>`).join('') || '<span class="muted" style="font-size:12px">Noch keine Daten.</span>'}
+    <div class="muted" style="font-size:11px;margin-top:14px;">App-Build ${APP_BUILD} · lokale Thumbnails · bei Speicherengpass Fotos werden stärker komprimiert.</div>
+  `;
+  el.innerHTML += extra;
+  // patch saveGoals to include articles week
+};
+const _saveGoals = saveGoals;
+saveGoals = function(){
+  const revenue=parseFloat(document.getElementById('goal-revenue')?.value)||0;
+  const profit=parseFloat(document.getElementById('goal-profit')?.value)||0;
+  const articlesWeek=parseFloat(document.getElementById('goal-articles-week')?.value)||0;
+  localStorage.setItem('preis-check-goals', JSON.stringify({ revenue, profit, articlesWeek }));
+  showToast('Ziele gespeichert');
+  renderStats();
+};
+
+// loadItem recent + price history
+const _loadItem = loadItem;
+loadItem = function(id){
+  _loadItem(id);
+  pushRecent(id);
+  renderPriceHistoryForCurrent();
+  showDupWarn(findSimilarItems({ id, brand:document.getElementById('f-brand').value, category:document.getElementById('f-category').value, name:document.getElementById('f-name').value, color:document.getElementById('f-color')?.value }));
+};
+
+// init bits
+try{
+  const v=document.getElementById('app-version'); if(v) v.textContent='Build '+APP_BUILD;
+  setTitleLang(getTitleLang());
+  renderRecentItems();
+  maybeWeeklyBackupNag();
+}catch(e){}
+
 updateStepProgress();
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbe05cb806efb7',t:'MTc4NDQ4NjY1NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbeaf96edc3ec7',t:'MTc4NDQ4NzA5MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
