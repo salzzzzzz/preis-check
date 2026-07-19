@@ -215,6 +215,59 @@
   .batch-meta b { color:var(--gold); }
   .batch-actions { display:flex; gap:6px; flex-wrap:wrap; }
   .modal .grid-fields { margin-top:8px; }
+
+  .step-progress {
+    display:flex; gap:4px; flex-wrap:wrap; margin:0 0 14px; padding:8px;
+    background:var(--card); border:1px solid var(--card-border); border-radius:10px;
+  }
+  .step-dot {
+    flex:1; min-width:36px; text-align:center; font-size:10px; color:var(--ink-muted);
+    padding:6px 2px; border-radius:6px; border:1px solid transparent; cursor:pointer;
+    font-family:'IBM Plex Mono',monospace;
+  }
+  .step-dot:hover { color:var(--ink); background:#161613; }
+  .step-dot.active { color:var(--gold); border-color:var(--gold); background:rgba(217,164,65,.08); }
+  .step-dot.done { color:var(--success-text); }
+
+  .sticky-result {
+    position:sticky; bottom:12px; z-index:30; margin-top:12px;
+    background:rgba(36,36,32,.97); border:1px solid var(--card-border);
+    border-radius:10px; padding:10px 12px;
+    box-shadow:0 -6px 24px rgba(0,0,0,.35);
+  }
+  .sticky-result .sr-row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; justify-content:space-between; }
+  .sticky-metrics { display:flex; gap:12px; flex-wrap:wrap; font-size:12px; }
+  .sticky-metrics span { color:var(--ink-muted); }
+  .sticky-metrics b { color:var(--ink); font-family:'IBM Plex Mono',monospace; font-weight:500; }
+  .price-suggest-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:8px; margin-top:10px; }
+  .price-suggest {
+    background:#161613; border:1px solid var(--card-border); border-radius:8px; padding:10px;
+  }
+  .price-suggest .ps-label { font-size:11px; color:var(--ink-muted); text-transform:uppercase; letter-spacing:.04em; }
+  .price-suggest .ps-value { font:16px 'IBM Plex Mono',monospace; margin-top:4px; color:var(--ink); }
+  .price-suggest .ps-hint { font-size:10px; color:var(--ink-muted); margin-top:2px; }
+  .toast {
+    position:fixed; right:16px; bottom:80px; z-index:200; display:none;
+    background:#2a2a24; border:1px solid var(--gold); color:var(--ink);
+    padding:10px 14px; border-radius:8px; font-size:13px; max-width:280px;
+    box-shadow:0 8px 24px rgba(0,0,0,.4);
+  }
+  .toast.show { display:block; animation:fadeIn .2s ease; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+  .photo-thumb[draggable="true"] { cursor:grab; }
+  .photo-thumb.drag-over { outline:2px dashed var(--gold); }
+  .title-variants { display:flex; flex-direction:column; gap:6px; margin:8px 0 10px; }
+  .title-variant {
+    text-align:left; width:100%; background:#161613; border:1px solid var(--card-border);
+    border-radius:8px; padding:8px 10px; color:var(--ink); font-size:13px; cursor:pointer;
+  }
+  .title-variant:hover, .title-variant.active { border-color:var(--gold); }
+  .fee-row { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+  @media(max-width:760px){
+    .sticky-result{bottom:72px;left:8px;right:8px;margin:0;}
+    .step-dot{font-size:9px;min-width:28px;padding:5px 1px;}
+    body.pwa-ready .sidebar{padding-bottom:env(safe-area-inset-bottom);}
+  }
   .metric-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:10px; }
   .metric { background:#161613; border:1px solid var(--card-border); border-radius:8px; padding:12px; }
   .metric strong { display:block; font:18px 'IBM Plex Mono',monospace; margin-top:5px; }
@@ -273,6 +326,15 @@
     <h1>Preis-Check</h1>
     <button class="settings-btn" onclick="openSettings()">Gemini API-Key</button>
   </div>
+  <div class="step-progress" id="step-progress" aria-label="Fortschritt">
+    <div class="step-dot active" data-step="1" onclick="scrollToStep(1)">1 Foto</div>
+    <div class="step-dot" data-step="2" onclick="scrollToStep(2)">2 Daten</div>
+    <div class="step-dot" data-step="3" onclick="scrollToStep(3)">3 Suche</div>
+    <div class="step-dot" data-step="4" onclick="scrollToStep(4)">4 Preis</div>
+    <div class="step-dot" data-step="5" onclick="scrollToStep(5)">5 EK</div>
+    <div class="step-dot" data-step="6" onclick="scrollToStep(6)">6 Text</div>
+    <div class="step-dot" data-step="7" onclick="scrollToStep(7)">7 Marge</div>
+  </div>
   <hr class="divider" />
 
   <div class="warn-box">
@@ -295,7 +357,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="step-panel-1" data-step-panel="1">
     <h2>1 · Artikel erkennen</h2>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
       <img id="preview-img" style="display:none;" />
@@ -334,7 +396,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="step-panel-2" data-step-panel="2">
     <h2>2 · Artikel-Daten</h2>
     <div class="grid-fields">
       <div>
@@ -374,12 +436,12 @@
     <label class="field-label" style="margin-top:8px;">Interne Notizen</label><textarea id="f-notes" rows="2" style="width:100%;background:#161613;border:1px solid var(--card-border);border-radius:6px;padding:8px 10px;color:var(--ink);font-size:13px;" placeholder="z.B. liegt im Karton 3"></textarea>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="step-panel-3" data-step-panel="3">
     <h2>3 · Vergleichspreise recherchieren</h2>
     <div class="research-grid" id="research-links"></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="step-panel-4" data-step-panel="4">
     <h2>4 · Marktpreis</h2>
     <div style="font-size:11px; color:var(--ink-muted); margin-bottom:8px;">
       Nach der Foto-Analyse schlägt Gemini auf Basis des erkannten Artikels, der Marke, des Zustands und
@@ -419,7 +481,7 @@
     <div id="corrections-list" style="margin-top:12px;"></div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="step-panel-5" data-step-panel="5">
     <h2>5 · Einkaufspreis (EK)</h2>
     <div class="grid-fields">
       <div>
@@ -436,7 +498,7 @@
     </div>
   </div>
 
-  <div class="panel">
+  <div class="panel" id="step-panel-6" data-step-panel="6">
     <h2>6 · Verkaufsbeschreibung</h2>
     <h2 style="margin-top:16px;">Größe &amp; Maße</h2>
     <div style="font-size:11px;color:var(--ink-muted);margin-bottom:6px;">
@@ -451,40 +513,61 @@
       <div><label class="field-label">Schulterbreite</label><input id="f-shoulder" placeholder="z.B. 44 cm" /></div>
       <div><label class="field-label">Ärmellänge</label><input id="f-sleeve" placeholder="z.B. 62 cm" /></div>
     </div>
-    <label class="field-label" style="margin-top:12px;">Fester Beschreibungstil</label>
-    <div style="background:#161613;border:1px solid var(--card-border);border-radius:6px;padding:10px;color:var(--ink-muted);font-size:12px;margin-bottom:10px;">Der feste Stil mit Zustand, Größe, optionalen Maßen, Details, Versand und Hashtags wird automatisch verwendet.</div>
+    <div class="grid-fields" style="margin-top:10px;">
+      <div><label class="field-label">Material</label><input id="f-material" placeholder="z.B. 100% Baumwolle" /></div>
+      <div><label class="field-label">Passform</label><input id="f-fit" placeholder="z.B. Regular / Oversized" /></div>
+      <div><label class="field-label">Geschlecht</label>
+        <select id="f-gender"><option value="">–</option><option>Herren</option><option>Damen</option><option>Unisex</option><option>Kids</option></select>
+      </div>
+    </div>
     <textarea id="style-template" style="display:none"></textarea>
 
     <h2 style="margin-top:16px;">Verkaufstitel</h2>
     <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
       <button class="ghost" onclick="generateTitle()" id="title-btn">Titel generieren</button>
+      <button class="ghost" onclick="generateTitleVariants()" id="title-variants-btn">3 Varianten</button>
       <button class="ghost" onclick="copyTitle()">Kopieren</button>
       <span class="analyze-status" id="title-status"></span>
     </div>
+    <div id="title-variants" class="title-variants" style="display:none;"></div>
     <input id="generated-title" type="text" maxlength="120" placeholder="Fred Perry Vintage Polo Shirt Gr. S Khaki im retro y2k streetwear style" style="width:100%;margin-bottom:6px;" />
     <div style="font-size:11px;color:var(--ink-muted);margin-bottom:12px;">
       <span id="title-char-count">0</span> Zeichen
     </div>
 
-    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px;">
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
       <button class="ghost" onclick="generateDescription()" id="desc-btn">Beschreibung generieren</button>
+      <button class="primary" onclick="copyAllListing()">Alles kopieren</button>
       <span class="analyze-status" id="desc-status"></span>
     </div>
-    <textarea id="generated-description" rows="5" readonly style="width:100%; background:#161613; border:1px solid var(--card-border); border-radius:6px; padding:8px 10px; color:var(--ink); font-size:13px; font-family:'Inter', sans-serif;" placeholder="Erscheint hier automatisch nach der Foto-Analyse (wenn oben ein Stil hinterlegt ist)."></textarea>
-    <button class="ghost" style="margin-top:8px;" onclick="copyDescription()">Kopieren</button>
+    <textarea id="generated-description" rows="8" style="width:100%; background:#161613; border:1px solid var(--card-border); border-radius:6px; padding:8px 10px; color:var(--ink); font-size:13px; font-family:'Inter', sans-serif;" placeholder="Beschreibung hier – editierbar."></textarea>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <button class="ghost" onclick="copyDescription()">Beschreibung kopieren</button>
+      <button class="ghost" onclick="copyTitle()">Titel kopieren</button>
+    </div>
   </div>
 
-  <div class="panel">
-    <h2>7 · Ziel-Marge für die Empfehlung</h2>
+  <div class="panel" id="step-panel-7" data-step-panel="7">
+    <h2>7 · Ziel-Marge &amp; Gebühren</h2>
     <div class="slider-row">
       <input type="range" id="margin-threshold" min="0" max="150" step="5" value="50" oninput="calculate()" />
       <span class="slider-value" id="margin-threshold-value">50%</span>
     </div>
-    <div style="font-size:11px; color:var(--ink-muted);">Ab dieser Marge gilt der Artikel als klarer Kauf.</div>
+    <div style="font-size:11px; color:var(--ink-muted);margin-bottom:8px;">Ab dieser Marge gilt der Artikel als klarer Kauf (auf Netto-Basis nach Gebühren).</div>
+    <div class="fee-row">
+      <div>
+        <label class="field-label">Plattform-Gebühren %</label>
+        <input id="f-fee-pct" type="number" min="0" max="40" step="0.1" value="5" oninput="calculate()" />
+      </div>
+      <div>
+        <label class="field-label">Fixkosten / Versand raus (€)</label>
+        <input id="f-fee-fixed" type="number" min="0" step="0.01" value="0" oninput="calculate()" />
+      </div>
+    </div>
   </div>
 
-  <div class="panel">
-    <h2>Ergebnis</h2>
+  <div class="panel" id="result-panel">
+    <h2>Ergebnis &amp; Preisvorschläge</h2>
     <div class="stat-line">
       <span class="label">Geschätzter Marktpreis</span>
       <span class="value" id="res-market">–</span>
@@ -494,12 +577,26 @@
       <span class="value" id="res-ek">–</span>
     </div>
     <div class="stat-line">
-      <span class="label">Erwartete Marge</span>
+      <span class="label">Gebühren (geschätzt)</span>
+      <span class="value" id="res-fees">–</span>
+    </div>
+    <div class="stat-line">
+      <span class="label">Netto-Erlös (nach Gebühren)</span>
+      <span class="value" id="res-net">–</span>
+    </div>
+    <div class="stat-line">
+      <span class="label">Erwartete Netto-Marge</span>
       <span class="value" id="res-profit">–</span>
     </div>
     <div class="stat-line">
       <span class="label">Marge in %</span>
       <span class="value" id="res-margin-pct">–</span>
+    </div>
+    <div class="price-suggest-grid">
+      <div class="price-suggest"><div class="ps-label">Schnellverkauf</div><div class="ps-value" id="quick-price">–</div><div class="ps-hint">Markt −10%</div></div>
+      <div class="price-suggest"><div class="ps-label">Normal</div><div class="ps-value" id="normal-price">–</div><div class="ps-hint">Median</div></div>
+      <div class="price-suggest"><div class="ps-label">Premium</div><div class="ps-value" id="premium-price">–</div><div class="ps-hint">Markt +8%</div></div>
+      <div class="price-suggest"><div class="ps-label">Max. EK</div><div class="ps-value" id="max-buy-price">–</div><div class="ps-hint">bei Zielmarge (netto)</div></div>
     </div>
     <div class="verdict empty" id="verdict" style="margin-top:12px;">
       <div class="verdict-label">Noch nicht genug Daten</div>
@@ -507,7 +604,23 @@
     </div>
   </div>
 
+  <div class="sticky-result" id="sticky-result">
+    <div class="sr-row">
+      <div class="sticky-metrics">
+        <span>Markt <b id="sticky-market">–</b></span>
+        <span>EK <b id="sticky-ek">–</b></span>
+        <span>Netto <b id="sticky-profit">–</b></span>
+        <span>Marge <b id="sticky-margin">–</b></span>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <button class="ghost" onclick="copyAllListing()">Alles kopieren</button>
+        <button class="primary" onclick="saveCurrentItem()">Speichern</button>
+      </div>
+    </div>
+  </div>
+
 </div>
+<div class="toast" id="app-toast"></div>
 
 <!-- Datenschutz / öffentliche Hinweise -->
 <div id="privacy-view" class="view hidden">
@@ -710,7 +823,10 @@ function getDescriptionFields() {
   const length = document.getElementById('f-length').value.trim();
   const shoulder = document.getElementById('f-shoulder').value.trim();
   const sleeve = document.getElementById('f-sleeve').value.trim();
-  return { name, brand, category, condition, defects, size, color, era, chest, length, shoulder, sleeve };
+  const material = (document.getElementById('f-material')?.value || '').trim();
+  const fit = (document.getElementById('f-fit')?.value || '').trim();
+  const gender = (document.getElementById('f-gender')?.value || '').trim();
+  return { name, brand, category, condition, defects, size, color, era, chest, length, shoulder, sleeve, material, fit, gender };
 }
 
 function buildDetailsHeadline(f) {
@@ -789,10 +905,13 @@ function buildDetailsBlock(f, extraBullets) {
   } else {
     // Lokaler Fallback + ggf. einzelne KI-Bullets mischen
     const bullets = [];
-    if (f.color) bullets.push('Zeitloses ' + f.color + ' aus hochwertigem Material – Details siehe Artikelbilder bzw. Etikett');
+    if (f.color && f.material) bullets.push('Zeitloses ' + f.color + ' aus ' + f.material);
+    else if (f.color) bullets.push('Zeitloses ' + f.color + ' aus hochwertigem Material – Details siehe Artikelbilder bzw. Etikett');
+    else if (f.material) bullets.push('Material: ' + f.material + ' – Farbe siehe Artikelbilder');
     else bullets.push('Hochwertiges Material mit angenehmem Griff – Farbe und Stoff siehe Artikelbilder bzw. Etikett');
     bullets.push('Authentisches ' + brand + '-Design mit typischen Markendetails und klarer Wiedererkennung');
-    bullets.push(category + ' im cleanen, zeitlosen Schnitt – ideal zum Kombinieren');
+    bullets.push(category + (f.fit ? (' im ' + f.fit + '-Schnitt') : ' im cleanen, zeitlosen Schnitt') + ' – ideal zum Kombinieren');
+    if (f.gender) bullets.push('Ausgelegt als ' + f.gender + '-Piece – Passform bitte anhand der Maße prüfen');
     bullets.push('Saubere Verarbeitung an Nähten, Abschlüssen und Details für einen hochwertigen Look');
     cleanedExtra.forEach(l => {
       if (!bullets.some(x => x.toLowerCase() === l.toLowerCase())) bullets.push(l);
@@ -1020,20 +1139,6 @@ function updateTitleCharCount() {
   countEl.style.color = n > 100 ? 'var(--warn)' : (n > 80 ? 'var(--gold)' : 'var(--ink-muted)');
 }
 
-function copyTitle() {
-  const el = document.getElementById('generated-title');
-  if (!el || !el.value) return;
-  el.focus();
-  el.select();
-  try {
-    navigator.clipboard.writeText(el.value);
-  } catch (e) {
-    document.execCommand('copy');
-  }
-  const st = document.getElementById('title-status');
-  if (st) st.textContent = 'Titel in Zwischenablage kopiert.';
-}
-
 async function runTitleGeneration({ silent = false } = {}) {
   const name = document.getElementById('f-name').value.trim();
   const brand = document.getElementById('f-brand').value.trim();
@@ -1088,9 +1193,85 @@ async function generateTitle() {
   st.textContent = 'Generiere Titel…';
   try {
     await runTitleGeneration({ silent: false });
+    updateStepProgress();
   } finally {
     b.disabled = false;
   }
+}
+
+function localTitleVariants() {
+  const f = getTitleFields();
+  const base = generateLocalTitle();
+  const brand = f.brand || '';
+  let cat = f.category || f.name || 'Artikel';
+  if (brand && cat.toLowerCase().startsWith(brand.toLowerCase())) cat = cat.slice(brand.length).trim() || cat;
+  const era = formatEraForTitle(f.era);
+  const sizeBit = f.size ? ('Gr. ' + f.size.replace(/^gr\.?\s*/i, '')) : '';
+  const color = (f.color && f.color !== 'siehe Bilder') ? f.color : '';
+  const v2 = [brand, cat, color, sizeBit].filter(Boolean).join(' ') + (era ? (' · ' + era) : '');
+  const v3 = [brand, color, cat, sizeBit].filter(Boolean).join(' ') + (era ? (' im ' + era + ' style') : '');
+  const uniq = [];
+  [base, v2.replace(/\s+/g, ' ').trim(), v3.replace(/\s+/g, ' ').trim()].forEach(t => {
+    const s = String(t || '').slice(0, 100).trim();
+    if (s && !uniq.some(u => u.toLowerCase() === s.toLowerCase())) uniq.push(s);
+  });
+  while (uniq.length < 3) uniq.push(base);
+  return uniq.slice(0, 3);
+}
+
+function renderTitleVariants(list) {
+  const box = document.getElementById('title-variants');
+  if (!box) return;
+  if (!list || !list.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = 'flex';
+  const current = document.getElementById('generated-title')?.value.trim() || '';
+  box.innerHTML = list.map((t, i) =>
+    `<button type="button" class="title-variant${t === current ? ' active' : ''}" onclick="selectTitleVariant(${i})">${escapeHtml(t)}</button>`
+  ).join('');
+  window._titleVariants = list;
+}
+function selectTitleVariant(i) {
+  const list = window._titleVariants || [];
+  if (!list[i]) return;
+  setGeneratedTitle(list[i], 'Variante ' + (i + 1) + ' gewählt.');
+  renderTitleVariants(list);
+  updateStepProgress();
+}
+async function generateTitleVariants() {
+  const st = document.getElementById('title-status');
+  const b = document.getElementById('title-variants-btn');
+  if (!hasArticleData()) {
+    if (st) st.textContent = 'Bitte zuerst Artikel-Daten ausfüllen.';
+    return;
+  }
+  if (b) b.disabled = true;
+  if (st) st.textContent = 'Generiere 3 Titel-Varianten…';
+  const key = getApiKey();
+  let variants = localTitleVariants();
+  if (key) {
+    try {
+      const f = getTitleFields();
+      const prompt = 'Erstelle genau 3 kurze einzeilige deutsche Vinted-Titel als JSON {"titles":["...","...","..."]}. ' +
+        'Beispiel: "Fred Perry Vintage Polo Shirt Gr. S Khaki im retro y2k streetwear style". ' +
+        'Daten: Marke=' + (f.brand || '') + ', Kategorie=' + (f.category || f.name || '') +
+        ', Farbe=' + (f.color || '') + ', Größe=' + (f.size || '') + ', Era=' + (f.era || 'y2k vintage retro streetwear') + '. ' +
+        'Jeder Titel eine Zeile, max 100 Zeichen, mit Marke+Kategorie+Farbe+Style. Keine Emojis/Hashtags.';
+      const raw = getProvider() === 'groq'
+        ? await groqDirectRequest(key, prompt, [])
+        : await geminiDirectRequest(key, prompt, []);
+      const parsed = parseGeminiJSON(raw);
+      const arr = Array.isArray(parsed.titles) ? parsed.titles : (Array.isArray(parsed.title_variants) ? parsed.title_variants : []);
+      const cleaned = arr.map(t => normalizeGeneratedTitle(String(t || ''))).filter(Boolean);
+      if (cleaned.length) variants = cleaned.slice(0, 3);
+      while (variants.length < 3) variants.push(localTitleVariants()[variants.length] || generateLocalTitle());
+    } catch (e) {
+      if (st) st.textContent = 'Varianten lokal (KI-Fehler).';
+    }
+  }
+  renderTitleVariants(variants);
+  if (!document.getElementById('generated-title')?.value.trim()) setGeneratedTitle(variants[0], null);
+  if (st) st.textContent = '3 Varianten – eine antippen.';
+  if (b) b.disabled = false;
 }
 
 // KI läuft direkt über lokalen API-Key (Supabase ai-proxy liefert 401 und wird nicht genutzt).
@@ -1284,6 +1465,8 @@ function buildDescriptionPrompt() {
     '. Verwende die Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. Farbe: ' + (f.color || 'nicht angegeben') +
     '. Zustand: ' + (f.condition || 'nicht angegeben') + '. Mängel: ' + (f.defects || 'keine angegeben') +
     '. Größe: ' + (f.size || 'nicht angegeben') + '. Era/Style: ' + (f.era || 'y2k vintage retro streetwear') +
+    '. Material: ' + (f.material || 'nicht angegeben') + '. Passform: ' + (f.fit || 'nicht angegeben') +
+    '. Geschlecht: ' + (f.gender || 'nicht angegeben') +
     '. Maße nur verwenden, wenn vorhanden: ' +
     [f.chest && ('Achsel zu Achsel: ' + f.chest), f.length && ('Gesamtlänge: ' + f.length), f.shoulder && ('Schulterbreite: ' + f.shoulder), f.sleeve && ('Ärmellänge: ' + f.sleeve)].filter(Boolean).join('; ') +
     '. Beispielstil:\n\n' + DESCRIPTION_STYLE + '\n\n' + DETAILS_STYLE_RULES +
@@ -1359,15 +1542,6 @@ async function generateDescription() {
   } finally {
     descBtn.disabled = false;
   }
-}
-
-function copyDescription() {
-  const ta = document.getElementById('generated-description');
-  if (!ta.value) return;
-  ta.select();
-  document.execCommand('copy');
-  const descStatus = document.getElementById('desc-status');
-  descStatus.textContent = 'In Zwischenablage kopiert.';
 }
 
 function loadCorrections() {
@@ -1571,19 +1745,48 @@ function renderPhotoStrip() {
   const el = document.getElementById('photo-strip');
   if (!el) return;
   if (!pendingImages.length) {
-    el.innerHTML = '<div class="muted" style="font-size:12px;">Noch keine Fotos – am besten Etikett, Vorderseite und ggf. Maßband-Foto.</div>';
+    el.innerHTML = '<div class="muted" style="font-size:12px;">Noch keine Fotos – am besten Etikett, Vorderseite und ggf. Maßband-Foto. Ziehen zum Sortieren.</div>';
     return;
   }
   el.innerHTML = pendingImages.map((src, i) =>
-    `<div class="photo-thumb${i === 0 ? ' main' : ''}">` +
-      (i === 0 ? '<span class="photo-badge">Haupt</span>' : '') +
+    `<div class="photo-thumb${i === 0 ? ' main' : ''}" draggable="true" data-idx="${i}" ondragstart="onPhotoDragStart(event,${i})" ondragover="onPhotoDragOver(event)" ondrop="onPhotoDrop(event,${i})" ondragend="onPhotoDragEnd(event)">` +
+      (i === 0 ? '<span class="photo-badge">Haupt</span>' : `<span class="photo-badge" style="color:var(--ink-muted)">#${i + 1}</span>`) +
       `<button type="button" class="photo-x" title="Entfernen" onclick="event.stopPropagation();removePhoto(${i})">✕</button>` +
-      `<img src="${src}" alt="Foto ${i + 1}" onclick="setMainPhotoLocal(${i})" title="Als Hauptbild">` +
+      `<img src="${src}" alt="Foto ${i + 1}" onclick="setMainPhotoLocal(${i})" title="Ziehen zum Sortieren · Klick = Hauptbild">` +
       (i === 0
         ? `<button type="button" class="ghost photo-main-btn" disabled>Hauptbild</button>`
         : `<button type="button" class="ghost photo-main-btn" onclick="event.stopPropagation();setMainPhotoLocal(${i})">Als Haupt</button>`) +
     `</div>`
   ).join('');
+}
+
+let dragPhotoIdx = null;
+function onPhotoDragStart(e, idx) {
+  dragPhotoIdx = idx;
+  try { e.dataTransfer.setData('text/plain', String(idx)); e.dataTransfer.effectAllowed = 'move'; } catch (err) {}
+  e.currentTarget.style.opacity = '0.5';
+}
+function onPhotoDragOver(e) {
+  e.preventDefault();
+  e.currentTarget.classList.add('drag-over');
+}
+function onPhotoDragEnd(e) {
+  e.currentTarget.style.opacity = '';
+  document.querySelectorAll('.photo-thumb.drag-over').forEach(n => n.classList.remove('drag-over'));
+  dragPhotoIdx = null;
+}
+function onPhotoDrop(e, toIdx) {
+  e.preventDefault();
+  e.currentTarget.classList.remove('drag-over');
+  let fromIdx = dragPhotoIdx;
+  try {
+    const d = e.dataTransfer.getData('text/plain');
+    if (d !== '') fromIdx = parseInt(d, 10);
+  } catch (err) {}
+  if (!Number.isInteger(fromIdx) || fromIdx === toIdx || fromIdx < 0 || fromIdx >= pendingImages.length) return;
+  const [img] = pendingImages.splice(fromIdx, 1);
+  pendingImages.splice(toIdx, 0, img);
+  syncPhotoUi();
 }
 
 const dropzone = document.getElementById('dropzone');
@@ -1765,6 +1968,9 @@ function buildPhotoAnalyzePrompt(simple = false) {
     'length_cm (Gesamtlänge in cm als Zahl, nur wenn erkennbar, sonst null), ' +
     'shoulder_cm (Schulterbreite in cm als Zahl, nur wenn erkennbar, sonst null), ' +
     'sleeve_cm (Ärmellänge in cm als Zahl, nur wenn erkennbar, sonst null), ' +
+    'material (Stoff/Material vom Etikett falls lesbar, sonst leerer String), ' +
+    'fit (Passform falls erkennbar: Regular/Slim/Oversized/Relaxed, sonst leer), ' +
+    'gender (Herren/Damen/Unisex/Kids falls erkennbar, sonst leer), ' +
     'measurements_note (kurz auf Deutsch: woher die Maße kommen, z.B. "Etikett lesbar" / "Maßband im Bild" / "nicht erkennbar"), ' +
     'price_low (geschätzter unterer Wiederverkaufspreis in Euro als Zahl), ' +
     'price_high (geschätzter oberer Wiederverkaufspreis in Euro als Zahl). ' +
@@ -1824,6 +2030,18 @@ function applyPhotoAnalysis(parsed) {
   if (setFieldIfEmpty('f-length', length)) filled.push('Länge ' + length);
   if (setFieldIfEmpty('f-shoulder', shoulder)) filled.push('Schulter ' + shoulder);
   if (setFieldIfEmpty('f-sleeve', sleeve)) filled.push('Ärmel ' + sleeve);
+
+  const material = pickFirstString(parsed.material, parsed.fabric, parsed.stoff);
+  const fit = pickFirstString(parsed.fit, parsed.passform, parsed.silhouette);
+  const gender = pickFirstString(parsed.gender, parsed.geschlecht);
+  if (setFieldIfEmpty('f-material', material)) filled.push('Material');
+  if (setFieldIfEmpty('f-fit', fit)) filled.push('Passform');
+  if (gender && document.getElementById('f-gender') && !document.getElementById('f-gender').value) {
+    const opts = Array.from(document.getElementById('f-gender').options).map(o => o.value);
+    const match = opts.find(o => o && o.toLowerCase() === gender.toLowerCase()) ||
+      opts.find(o => o && gender.toLowerCase().includes(o.toLowerCase()));
+    if (match) { document.getElementById('f-gender').value = match; filled.push(match); }
+  }
 
   const mStatus = document.getElementById('measures-ai-status');
   if (mStatus) {
@@ -2140,7 +2358,45 @@ function nextArticleNo(){const year=new Date().getFullYear(),nums=inventoryData(
 function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{localStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:currentRecord()}))}catch(e){}},500)}
 function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';if(document.getElementById('f-size'))document.getElementById('f-size').value=r.size||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}if(document.getElementById('generated-description')&&r.description)document.getElementById('generated-description').value=r.description;prices=r.prices||[];pendingImages=Array.isArray(r.photos)?r.photos.slice(0, MAX_PHOTOS):[];pendingImage=pendingImages[0]||null;if(document.getElementById('f-chest')&&r.chest)document.getElementById('f-chest').value=r.chest;if(document.getElementById('f-length')&&r.length)document.getElementById('f-length').value=r.length;if(document.getElementById('f-shoulder')&&r.shoulder)document.getElementById('f-shoulder').value=r.shoulder;if(document.getElementById('f-sleeve')&&r.sleeve)document.getElementById('f-sleeve').value=r.sleeve;renderPrices();syncPhotoUi();renderResearchLinks();calculate()}}catch(e){}}
 
-function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),color:(document.getElementById('f-color')?.value||'').trim(),era:(document.getElementById('f-era')?.value||'').trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0, MAX_PHOTOS),title:document.getElementById('generated-title')?.value||'',description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
+function currentRecord(){
+  const existing = currentItemId ? inventoryData().find(x => x.id === currentItemId) : null;
+  const status = document.getElementById('f-status').value;
+  const now = new Date().toISOString();
+  return {
+    id: currentItemId || Date.now().toString(36),
+    name: document.getElementById('f-name').value.trim(),
+    brand: document.getElementById('f-brand').value.trim(),
+    category: document.getElementById('f-category').value.trim(),
+    condition: document.getElementById('f-condition').value,
+    defects: document.getElementById('f-defects').value.trim(),
+    color: (document.getElementById('f-color')?.value || '').trim(),
+    era: (document.getElementById('f-era')?.value || '').trim(),
+    material: (document.getElementById('f-material')?.value || '').trim(),
+    fit: (document.getElementById('f-fit')?.value || '').trim(),
+    gender: (document.getElementById('f-gender')?.value || '').trim(),
+    ek: parseFloat(document.getElementById('f-ek-total').value) || 0,
+    soldPrice: parseFloat(document.getElementById('f-sold-price').value) || 0,
+    soldShipping: 0,
+    soldFees: 0,
+    status,
+    platform: document.getElementById('f-platform').value,
+    notes: document.getElementById('f-notes').value.trim(),
+    articleNo: document.getElementById('f-article-no').value,
+    size: document.getElementById('f-size').value.trim(),
+    chest: document.getElementById('f-chest').value.trim(),
+    length: document.getElementById('f-length').value.trim(),
+    shoulder: document.getElementById('f-shoulder').value.trim(),
+    sleeve: document.getElementById('f-sleeve').value.trim(),
+    prices,
+    photos: pendingImages.slice(0, MAX_PHOTOS),
+    title: document.getElementById('generated-title')?.value || '',
+    description: document.getElementById('generated-description').value,
+    listedAt: existing?.listedAt || ((status === 'eingestellt' || status === 'verkauft') ? now : existing?.listedAt || ''),
+    soldAt: status === 'verkauft' ? (existing?.soldAt || now) : (existing?.soldAt || ''),
+    created: existing?.created || now,
+    updated: now
+  };
+}
 function saveCurrentItem(options = {}) {
   const quiet = !!options.quiet;
   createAutoBackup('Vor dem Speichern');
@@ -2151,15 +2407,39 @@ function saveCurrentItem(options = {}) {
     document.getElementById('save-status').textContent = 'Bitte zuerst Artikeldaten eintragen.';
     return false;
   }
+  // Komprimierte Fotos falls Storage eng
+  try {
+    const bytes = new Blob([JSON.stringify(inventoryData().concat([r]))]).size;
+    if (bytes > 4.2 * 1024 * 1024 && r.photos?.length) {
+      // behalte max 4 Fotos bei Speicherdruck
+      r.photos = r.photos.slice(0, 4);
+    }
+  } catch (e) {}
   currentItemId = r.id;
   const l = inventoryData();
   const i = l.findIndex(x => x.id === r.id);
   if (i >= 0) l[i] = r; else l.unshift(r);
-  saveInventoryData(l);
+  try {
+    saveInventoryData(l);
+  } catch (e) {
+    // Quota: Fotos stark kürzen und nochmal
+    r.photos = (r.photos || []).slice(0, 2);
+    if (i >= 0) l[i] = r; else l[0] = r;
+    try {
+      saveInventoryData(l);
+      showToast('Gespeichert mit weniger Fotos (Speicher knapp)');
+    } catch (e2) {
+      document.getElementById('save-status').textContent = 'Speicher voll – Backup exportieren & alte Artikel löschen.';
+      showToast('localStorage voll');
+      return false;
+    }
+  }
   localStorage.removeItem('preis-check-draft');
   if (supabaseClient) syncAllToCloud();
   document.getElementById('save-status').textContent = quiet ? 'Gespeichert · nächster Artikel…' : 'Gespeichert.';
+  if (!quiet) showToast('Gespeichert ✓ · ' + (r.articleNo || ''));
   renderStats();
+  updateStepProgress();
   return true;
 }
 
@@ -2187,11 +2467,16 @@ function loadItem(id) {
   document.getElementById('f-length').value = r.length || '';
   document.getElementById('f-shoulder').value = r.shoulder || '';
   document.getElementById('f-sleeve').value = r.sleeve || '';
+  if (document.getElementById('f-material')) document.getElementById('f-material').value = r.material || '';
+  if (document.getElementById('f-fit')) document.getElementById('f-fit').value = r.fit || '';
+  if (document.getElementById('f-gender')) document.getElementById('f-gender').value = r.gender || '';
   document.getElementById('generated-description').value = r.description || '';
   if (document.getElementById('generated-title')) {
     document.getElementById('generated-title').value = r.title || '';
     updateTitleCharCount();
   }
+  const tv = document.getElementById('title-variants');
+  if (tv) { tv.style.display = 'none'; tv.innerHTML = ''; }
   prices = Array.isArray(r.prices) ? r.prices : [];
   pendingImages = Array.isArray(r.photos) ? r.photos.slice(0, MAX_PHOTOS) : [];
   pendingImage = pendingImages[0] || null;
@@ -2229,17 +2514,19 @@ function quickSetStatus(id, status) {
   const l = inventoryData();
   const r = l.find(x => x.id === id);
   if (!r) return;
+  const now = new Date().toISOString();
   r.status = status;
-  r.updated = new Date().toISOString();
-  // Bei Nicht-Verkauf Preis optional behalten, Status klar setzen
+  r.updated = now;
+  if (status === 'eingestellt' && !r.listedAt) r.listedAt = now;
+  if (status !== 'verkauft') r.soldAt = r.soldAt || '';
   saveInventoryData(l);
   renderInventory();
   renderStats();
-  // Wenn derselbe Artikel gerade offen ist: Feld syncen
   if (currentItemId === id) {
     const sel = document.getElementById('f-status');
     if (sel) sel.value = status;
   }
+  showToast('Status: ' + status);
 }
 
 function openSoldModal(id) {
@@ -2280,11 +2567,15 @@ function confirmSoldStatus() {
   const l = inventoryData();
   const r = l.find(x => x.id === soldModalItemId);
   if (!r) { closeSoldModal(); return; }
+  const now = new Date().toISOString();
   r.status = 'verkauft';
   r.soldPrice = price;
   r.platform = platform;
-  r.updated = new Date().toISOString();
+  r.updated = now;
+  r.soldAt = now;
+  if (!r.listedAt) r.listedAt = now;
   saveInventoryData(l);
+  showToast('Als verkauft markiert ✓');
   if (currentItemId === soldModalItemId) {
     document.getElementById('f-status').value = 'verkauft';
     document.getElementById('f-sold-price').value = price;
@@ -2394,7 +2685,7 @@ function updateBatchUi() {
 function clearFormForBatch() {
   currentItemId = null;
   prices = [];
-  ['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title','f-notes'].forEach(id => {
+  ['f-name','f-brand','f-category','f-defects','f-color','f-era','f-material','f-fit','f-gender','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title','f-notes'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -2407,10 +2698,12 @@ function clearFormForBatch() {
   const as = document.getElementById('analyze-status'); if (as) as.textContent = '';
   const ms = document.getElementById('measures-ai-status'); if (ms) { ms.textContent = ''; ms.style.color = ''; }
   const ss = document.getElementById('save-status'); if (ss) ss.textContent = '';
+  const tv = document.getElementById('title-variants'); if (tv) { tv.style.display = 'none'; tv.innerHTML = ''; }
   updateTitleCharCount();
   renderPrices();
   renderResearchLinks();
   calculate();
+  updateStepProgress();
 }
 
 async function loadBatchItem(index) {
@@ -2527,7 +2820,7 @@ function newItem() {
   prices = [];
   pendingImages = [];
   pendingImage = null;
-  ['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id => {
+  ['f-name','f-brand','f-category','f-defects','f-color','f-era','f-material','f-fit','f-gender','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.value = '';
   });
@@ -2537,16 +2830,116 @@ function newItem() {
   const ds = document.getElementById('desc-status'); if (ds) ds.textContent = '';
   const as = document.getElementById('analyze-status'); if (as) as.textContent = '';
   const ms = document.getElementById('measures-ai-status'); if (ms) { ms.textContent = ''; ms.style.color = ''; }
+  const tv = document.getElementById('title-variants'); if (tv) { tv.style.display = 'none'; tv.innerHTML = ''; }
   updateTitleCharCount();
   renderPrices();
   syncPhotoUi();
   const prog = document.getElementById('all-generate-progress');
   if (prog) prog.style.display = 'none';
+  updateStepProgress();
 }
 function setMainPhoto(id){const l=inventoryData(),r=l.find(x=>x.id===id);if(!r||!r.photos?.length)return;const n=prompt('Nummer des Hauptbilds (1–'+r.photos.length+')','1'),i=parseInt(n,10)-1;if(i>=0&&i<r.photos.length){r.mainPhoto=i;r.updated=new Date().toISOString();saveInventoryData(l);renderInventory()}}
 function updateStorageInfo(list){const bytes=new Blob([JSON.stringify(list)]).size,mb=(bytes/1024/1024).toFixed(2),pct=Math.min(100,bytes/5000000*100),el=document.getElementById('storage-info');if(el)el.innerHTML=`Lokaler Speicher: ca. ${mb} MB <div class="storage-bar"><span style="width:${pct}%"></span></div>`}
 
-function renderStats(){const l=inventoryData(),sold=l.filter(x=>x.soldPrice>0),invested=l.reduce((a,x)=>a+(x.ek||0),0),revenue=sold.reduce((a,x)=>a+(x.soldPrice||0),0),profit=revenue-invested;const byBrand={};l.forEach(x=>{const k=x.brand||'Ohne Marke';byBrand[k]=(byBrand[k]||0)+(x.soldPrice?x.soldPrice-(x.ek||0):0)});const rows=Object.entries(byBrand).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<div class="stat-line"><span class="label">${escapeHtml(k)}</span><span class="value">${fmtEUR(v)}</span></div>`).join('');document.getElementById('stats-content').innerHTML=`<div class="metric-grid"><div class="metric"><span class="muted">Artikel im Inventar</span><strong>${l.length}</strong></div><div class="metric"><span class="muted">Investierter EK</span><strong>${fmtEUR(invested)}</strong></div><div class="metric"><span class="muted">Verkäufe</span><strong>${sold.length}</strong></div><div class="metric"><span class="muted">Umsatz</span><strong>${fmtEUR(revenue)}</strong></div><div class="metric"><span class="muted">Tatsächlicher Gewinn</span><strong>${fmtEUR(profit)}</strong></div></div><h2 style="margin-top:18px">Gewinn nach Marke</h2>${rows||'<span class="muted" style="font-size:12px">Noch keine Verkäufe erfasst.</span>'}`}
+function daysBetween(a, b) {
+  const ms = new Date(b).getTime() - new Date(a).getTime();
+  if (!Number.isFinite(ms)) return null;
+  return Math.max(0, Math.round(ms / 86400000));
+}
+function itemAgeDays(r) {
+  const d = r.listedAt || r.updated || r.created || null;
+  if (!d) return null;
+  return daysBetween(d, r.soldAt || new Date().toISOString());
+}
+function renderStats() {
+  const el = document.getElementById('stats-content');
+  if (!el) return;
+  const l = inventoryData();
+  const sold = l.filter(x => Number(x.soldPrice) > 0 || x.status === 'verkauft');
+  const active = l.filter(x => !['verkauft', 'archiviert', 'nicht verkauft'].includes(x.status || 'geplant'));
+  const investedAll = l.reduce((a, x) => a + (Number(x.ek) || 0), 0);
+  const investedActive = active.reduce((a, x) => a + (Number(x.ek) || 0), 0);
+  const revenue = sold.reduce((a, x) => a + (Number(x.soldPrice) || 0), 0);
+  const soldEk = sold.reduce((a, x) => a + (Number(x.ek) || 0), 0);
+  const profit = revenue - soldEk;
+  const now = new Date();
+  const monthSold = sold.filter(x => {
+    const d = new Date(x.soldAt || x.updated || 0);
+    return d.getFullYear() === now.getFullYear() && d.getMonth() === now.getMonth();
+  });
+  const monthRev = monthSold.reduce((a, x) => a + (Number(x.soldPrice) || 0), 0);
+  const monthProfit = monthSold.reduce((a, x) => a + ((Number(x.soldPrice) || 0) - (Number(x.ek) || 0)), 0);
+
+  // Goals
+  let goals = { revenue: 1000, profit: 300 };
+  try { goals = { ...goals, ...JSON.parse(localStorage.getItem('preis-check-goals') || '{}') }; } catch (e) {}
+  const revGoal = Number(goals.revenue) || 1000;
+  const profGoal = Number(goals.profit) || 300;
+  const revPct = Math.min(100, Math.round(monthRev / revGoal * 100));
+  const profPct = Math.min(100, Math.round(monthProfit / profGoal * 100));
+
+  // Dead stock: eingestellt/geplant > 30 Tage
+  const dead = active.map(x => ({ x, age: itemAgeDays(x) })).filter(o => o.age != null && o.age >= 30)
+    .sort((a, b) => b.age - a.age);
+  const ages = sold.map(x => itemAgeDays(x)).filter(n => n != null);
+  const avgAge = ages.length ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length) : null;
+
+  // By brand / platform
+  const byBrand = {};
+  const byPlatform = {};
+  sold.forEach(x => {
+    const b = x.brand || 'Ohne Marke';
+    const p = x.platform || 'Ohne Plattform';
+    const g = (Number(x.soldPrice) || 0) - (Number(x.ek) || 0);
+    byBrand[b] = (byBrand[b] || 0) + g;
+    byPlatform[p] = (byPlatform[p] || 0) + g;
+  });
+  const brandRows = Object.entries(byBrand).sort((a, b) => b[1] - a[1]).slice(0, 12)
+    .map(([k, v]) => `<div class="stat-line"><span class="label">${escapeHtml(k)}</span><span class="value">${fmtEUR(v)}</span></div>`).join('');
+  const platRows = Object.entries(byPlatform).sort((a, b) => b[1] - a[1])
+    .map(([k, v]) => `<div class="stat-line"><span class="label">${escapeHtml(k)}</span><span class="value">${fmtEUR(v)}</span></div>`).join('');
+  const deadRows = dead.slice(0, 15).map(({ x, age }) =>
+    `<div class="stat-line"><span class="label">${escapeHtml(x.articleNo || '')} ${escapeHtml(x.name || x.brand || 'Artikel')} · ${escapeHtml(x.status || '')}</span><span class="value">${age} Tage · EK ${fmtEUR(x.ek)}</span></div>`
+  ).join('');
+
+  el.innerHTML = `
+    <div class="metric-grid">
+      <div class="metric"><span class="muted">Artikel gesamt</span><strong>${l.length}</strong></div>
+      <div class="metric"><span class="muted">Aktiv im Lager</span><strong>${active.length}</strong></div>
+      <div class="metric"><span class="muted">Kapital gebunden</span><strong>${fmtEUR(investedActive)}</strong></div>
+      <div class="metric"><span class="muted">Verkäufe</span><strong>${sold.length}</strong></div>
+      <div class="metric"><span class="muted">Umsatz gesamt</span><strong>${fmtEUR(revenue)}</strong></div>
+      <div class="metric"><span class="muted">Gewinn gesamt</span><strong>${fmtEUR(profit)}</strong></div>
+      <div class="metric"><span class="muted">Ø Lagerdauer (verkauft)</span><strong>${avgAge != null ? avgAge + ' T' : '–'}</strong></div>
+      <div class="metric"><span class="muted">Dead Stock ≥30T</span><strong>${dead.length}</strong></div>
+    </div>
+
+    <h2 style="margin-top:18px">Monatsziele</h2>
+    <div class="grid-fields" style="margin-bottom:8px;">
+      <div><label class="field-label">Umsatz-Ziel (€)</label><input id="goal-revenue" type="number" min="0" step="50" value="${revGoal}" onchange="saveGoals()" /></div>
+      <div><label class="field-label">Gewinn-Ziel (€)</label><input id="goal-profit" type="number" min="0" step="25" value="${profGoal}" onchange="saveGoals()" /></div>
+    </div>
+    <div class="stat-line"><span class="label">Umsatz diesen Monat</span><span class="value">${fmtEUR(monthRev)} · ${revPct}%</span></div>
+    <div class="storage-bar" style="margin:6px 0 10px"><span style="width:${revPct}%;background:var(--gold)"></span></div>
+    <div class="stat-line"><span class="label">Gewinn diesen Monat</span><span class="value">${fmtEUR(monthProfit)} · ${profPct}%</span></div>
+    <div class="storage-bar" style="margin:6px 0 10px"><span style="width:${profPct}%;background:var(--success)"></span></div>
+
+    <h2 style="margin-top:18px">Gewinn nach Marke</h2>
+    ${brandRows || '<span class="muted" style="font-size:12px">Noch keine Verkäufe erfasst.</span>'}
+    <h2 style="margin-top:18px">Gewinn nach Plattform</h2>
+    ${platRows || '<span class="muted" style="font-size:12px">Noch keine Plattform-Daten.</span>'}
+    <h2 style="margin-top:18px">Dead Stock (länger als 30 Tage)</h2>
+    ${deadRows || '<span class="muted" style="font-size:12px">Kein Dead Stock – stark.</span>'}
+    <div style="font-size:11px;color:var(--ink-muted);margin-top:10px;">Tipp: Bei Dead Stock Preis senken oder als „nicht verkauft“/Archiv markieren.</div>
+  `;
+}
+function saveGoals() {
+  const revenue = parseFloat(document.getElementById('goal-revenue')?.value) || 0;
+  const profit = parseFloat(document.getElementById('goal-profit')?.value) || 0;
+  localStorage.setItem('preis-check-goals', JSON.stringify({ revenue, profit }));
+  showToast('Monatsziele gespeichert');
+  renderStats();
+}
 function csvCell(v){return '"'+String(v??'').replaceAll('"','""')+'"'}
 function exportBackup(){const blob=new Blob([JSON.stringify({inventory:inventoryData(),corrections:loadCorrections(),exported:new Date().toISOString()},null,2)],{type:'application/json'});downloadBlob(blob,'preis-check-backup.json')}
 function importBackup(file){if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const d=JSON.parse(reader.result);if(Array.isArray(d.inventory))saveInventoryData(d.inventory);if(Array.isArray(d.corrections))saveCorrections(d.corrections);renderInventory();renderStats();renderCorrections();alert('Backup importiert.')}catch(e){alert('Backup konnte nicht gelesen werden.')}};reader.readAsText(file)}
@@ -2624,55 +3017,212 @@ function renderPrices() {
   document.getElementById('market-price').textContent = fmtEUR(median(prices));
 }
 
+function getFeePct() {
+  const v = parseFloat(document.getElementById('f-fee-pct')?.value);
+  return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+function getFeeFixed() {
+  const v = parseFloat(document.getElementById('f-fee-fixed')?.value);
+  return Number.isFinite(v) && v >= 0 ? v : 0;
+}
+function netFromSale(salePrice) {
+  if (salePrice == null || isNaN(salePrice)) return null;
+  return salePrice - (salePrice * getFeePct() / 100) - getFeeFixed();
+}
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+function updateSticky(market, ek, profit, marginPct) {
+  setText('sticky-market', market != null ? fmtEUR(market) : '–');
+  setText('sticky-ek', ek > 0 ? fmtEUR(ek) : '–');
+  setText('sticky-profit', profit != null && !isNaN(profit) ? fmtEUR(profit) : '–');
+  setText('sticky-margin', marginPct != null && !isNaN(marginPct) ? marginPct.toFixed(1) + '%' : '–');
+  const stickyProfit = document.getElementById('sticky-profit');
+  if (stickyProfit) {
+    stickyProfit.style.color = (profit != null && profit > 0) ? 'var(--success-text)' : (profit != null && profit < 0 ? 'var(--danger)' : 'var(--ink)');
+  }
+}
+function updateStepProgress() {
+  const checks = {
+    1: pendingImages.length > 0,
+    2: !!(document.getElementById('f-name')?.value.trim() || document.getElementById('f-brand')?.value.trim() || document.getElementById('f-category')?.value.trim()),
+    3: !!(document.getElementById('f-name')?.value.trim() || document.getElementById('f-brand')?.value.trim()),
+    4: prices.length > 0,
+    5: (parseFloat(document.getElementById('f-ek-total')?.value) || 0) > 0,
+    6: !!(document.getElementById('generated-title')?.value.trim() || document.getElementById('generated-description')?.value.trim()),
+    7: true
+  };
+  let current = 1;
+  for (let i = 1; i <= 7; i++) {
+    if (!checks[i] && i < 7) { current = i; break; }
+    if (i === 7) current = 7;
+    if (checks[i]) current = Math.min(7, i + (checks[i] && i < 7 ? 1 : 0));
+  }
+  // better: first incomplete step
+  current = 1;
+  for (let i = 1; i <= 6; i++) {
+    if (!checks[i]) { current = i; break; }
+    current = i + 1;
+  }
+  document.querySelectorAll('#step-progress .step-dot').forEach(dot => {
+    const s = parseInt(dot.getAttribute('data-step'), 10);
+    dot.classList.remove('active', 'done');
+    if (s < current && checks[s]) dot.classList.add('done');
+    if (s === current) dot.classList.add('active');
+    if (s < current) dot.classList.add('done');
+  });
+}
+function scrollToStep(n) {
+  const el = document.getElementById('step-panel-' + n) || document.getElementById('result-panel');
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function showToast(msg, ms = 2600) {
+  const t = document.getElementById('app-toast');
+  if (!t) return;
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(window._toastTimer);
+  window._toastTimer = setTimeout(() => t.classList.remove('show'), ms);
+}
+function copyTextSmart(text) {
+  const val = String(text || '');
+  if (!val) return Promise.reject(new Error('leer'));
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    return navigator.clipboard.writeText(val);
+  }
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = val;
+    document.body.appendChild(ta);
+    ta.select();
+    try {
+      document.execCommand('copy');
+      resolve();
+    } catch (e) { reject(e); }
+    finally { document.body.removeChild(ta); }
+  });
+}
+function copyAllListing() {
+  const title = document.getElementById('generated-title')?.value.trim() || '';
+  const desc = document.getElementById('generated-description')?.value.trim() || '';
+  const market = median(prices);
+  const quick = market != null ? (market * 0.9) : null;
+  const premium = market != null ? (market * 1.08) : null;
+  const parts = [];
+  if (title) parts.push(title);
+  if (desc) parts.push(desc);
+  if (market != null) {
+    parts.push(
+      'Preisvorschläge: Schnell ' + fmtEUR(quick) +
+      ' · Normal ' + fmtEUR(market) +
+      ' · Premium ' + fmtEUR(premium)
+    );
+  }
+  if (!parts.length) { showToast('Nichts zum Kopieren – zuerst Titel/Beschreibung generieren.'); return; }
+  copyTextSmart(parts.join('\n\n')).then(() => {
+    showToast('Titel + Beschreibung + Preise kopiert ✓');
+    const st = document.getElementById('desc-status');
+    if (st) st.textContent = 'Alles in Zwischenablage kopiert.';
+  }).catch(() => showToast('Kopieren fehlgeschlagen'));
+}
+function copyDescription() {
+  const ta = document.getElementById('generated-description');
+  if (!ta?.value) return;
+  copyTextSmart(ta.value).then(() => {
+    const st = document.getElementById('desc-status');
+    if (st) st.textContent = 'Beschreibung kopiert.';
+    showToast('Beschreibung kopiert ✓');
+  });
+}
+function copyTitle() {
+  const el = document.getElementById('generated-title');
+  if (!el?.value) return;
+  copyTextSmart(el.value).then(() => {
+    const st = document.getElementById('title-status');
+    if (st) st.textContent = 'Titel kopiert.';
+    showToast('Titel kopiert ✓');
+  });
+}
+
 function calculate() {
-  const thresholdVal = document.getElementById('margin-threshold').value;
-  document.getElementById('margin-threshold-value').textContent = thresholdVal + '%';
+  const thresholdVal = document.getElementById('margin-threshold')?.value || '50';
+  const thrEl = document.getElementById('margin-threshold-value');
+  if (thrEl) thrEl.textContent = thresholdVal + '%';
 
   const marketPrice = median(prices);
-  const totalEk = parseFloat(document.getElementById('f-ek-total').value) || 0;
+  const totalEk = parseFloat(document.getElementById('f-ek-total')?.value) || 0;
+  const feePct = getFeePct();
+  const feeFixed = getFeeFixed();
 
-  document.getElementById('res-ek').textContent = fmtEUR(totalEk);
-  document.getElementById('res-market').textContent = marketPrice != null ? fmtEUR(marketPrice) : '–';
-  const quickEl = document.getElementById('quick-price');
-  const normalEl = document.getElementById('normal-price');
-  const maxBuyEl = document.getElementById('max-buy-price');
-  if (quickEl) quickEl.textContent = marketPrice != null ? fmtEUR(marketPrice * 0.90) : '–';
-  if (normalEl) normalEl.textContent = marketPrice != null ? fmtEUR(marketPrice) : '–';
-  if (maxBuyEl) maxBuyEl.textContent = marketPrice != null ? fmtEUR(marketPrice / (1 + parseFloat(thresholdVal)/100)) : '–';
+  setText('res-ek', fmtEUR(totalEk));
+  setText('res-market', marketPrice != null ? fmtEUR(marketPrice) : '–');
+
+  const quick = marketPrice != null ? marketPrice * 0.90 : null;
+  const normal = marketPrice;
+  const premium = marketPrice != null ? marketPrice * 1.08 : null;
+  // Max EK so that net margin >= threshold: net = sale*(1-fee%)-fixed; (net-ek)/ek >= thr
+  // ek <= net / (1+thr)
+  const threshold = parseFloat(thresholdVal) || 0;
+  const netAtMarket = netFromSale(marketPrice);
+  const maxBuy = (netAtMarket != null && netAtMarket > 0)
+    ? netAtMarket / (1 + threshold / 100)
+    : null;
+
+  setText('quick-price', quick != null ? fmtEUR(quick) : '–');
+  setText('normal-price', normal != null ? fmtEUR(normal) : '–');
+  setText('premium-price', premium != null ? fmtEUR(premium) : '–');
+  setText('max-buy-price', maxBuy != null ? fmtEUR(maxBuy) : '–');
+
+  const feesAtMarket = marketPrice != null ? (marketPrice * feePct / 100) + feeFixed : null;
+  setText('res-fees', feesAtMarket != null ? fmtEUR(feesAtMarket) : '–');
+  setText('res-net', netAtMarket != null ? fmtEUR(netAtMarket) : '–');
 
   const verdictEl = document.getElementById('verdict');
+  let profit = null, marginPct = null;
 
   if (marketPrice == null) {
-    document.getElementById('res-profit').textContent = '–';
-    document.getElementById('res-margin-pct').textContent = '–';
-    verdictEl.className = 'verdict empty';
-    verdictEl.innerHTML = `<div class="verdict-label">Noch kein Marktpreis</div><div class="verdict-sub">Foto analysieren lassen oder oben Vergleichspreise eintragen.</div>`;
+    setText('res-profit', '–');
+    setText('res-margin-pct', '–');
+    if (verdictEl) {
+      verdictEl.className = 'verdict empty';
+      verdictEl.innerHTML = `<div class="verdict-label">Noch kein Marktpreis</div><div class="verdict-sub">Foto analysieren lassen oder Vergleichspreise eintragen.</div>`;
+    }
+    updateSticky(null, totalEk, null, null);
+    updateStepProgress();
     return;
   }
   if (totalEk <= 0) {
-    document.getElementById('res-profit').textContent = '–';
-    document.getElementById('res-margin-pct').textContent = '–';
-    verdictEl.className = 'verdict empty';
-    verdictEl.innerHTML = `<div class="verdict-label">Marktpreis vorhanden</div><div class="verdict-sub">Trag in Abschnitt 5 noch deinen Gesamt-Einkaufspreis inklusive Versand ein.</div>`;
+    setText('res-profit', '–');
+    setText('res-margin-pct', '–');
+    if (verdictEl) {
+      verdictEl.className = 'verdict empty';
+      verdictEl.innerHTML = `<div class="verdict-label">Marktpreis vorhanden</div><div class="verdict-sub">Trag in Abschnitt 5 noch deinen Gesamt-Einkaufspreis ein. Max. EK für Zielmarge: ${maxBuy != null ? fmtEUR(maxBuy) : '–'}.</div>`;
+    }
+    updateSticky(marketPrice, totalEk, null, null);
+    updateStepProgress();
     return;
   }
 
-  const profit = marketPrice - totalEk;
-  const marginPct = (profit / totalEk) * 100;
-  document.getElementById('res-profit').textContent = fmtEUR(profit);
-  document.getElementById('res-margin-pct').textContent = marginPct.toFixed(1) + '%';
+  profit = (netAtMarket != null ? netAtMarket : marketPrice) - totalEk;
+  marginPct = (profit / totalEk) * 100;
+  setText('res-profit', fmtEUR(profit));
+  setText('res-margin-pct', marginPct.toFixed(1) + '%');
+  updateSticky(marketPrice, totalEk, profit, marginPct);
 
-  const threshold = parseFloat(thresholdVal);
-  if (profit <= 0) {
-    verdictEl.className = 'verdict no';
-    verdictEl.innerHTML = `<div class="verdict-label">❌ Nicht kaufen</div><div class="verdict-sub">Kein Gewinn zum aktuellen Marktpreis – EK ist zu hoch.</div>`;
-  } else if (marginPct >= threshold) {
-    verdictEl.className = 'verdict buy';
-    verdictEl.innerHTML = `<div class="verdict-label">✅ Kaufen</div><div class="verdict-sub">Marge liegt über deiner Zielschwelle von ${threshold}%.</div>`;
-  } else {
-    verdictEl.className = 'verdict maybe';
-    verdictEl.innerHTML = `<div class="verdict-label">⚠️ Knapp / verhandeln</div><div class="verdict-sub">Positive Marge, aber unter deiner Zielschwelle von ${threshold}%. Ggf. EK nachverhandeln.</div>`;
+  if (verdictEl) {
+    if (profit <= 0) {
+      verdictEl.className = 'verdict no';
+      verdictEl.innerHTML = `<div class="verdict-label">❌ Nicht kaufen</div><div class="verdict-sub">Kein Netto-Gewinn nach Gebühren (${feePct}% + ${fmtEUR(feeFixed)}). Max. EK: ${fmtEUR(maxBuy)}.</div>`;
+    } else if (marginPct >= threshold) {
+      verdictEl.className = 'verdict buy';
+      verdictEl.innerHTML = `<div class="verdict-label">✅ Kaufen</div><div class="verdict-sub">Netto-Marge ${marginPct.toFixed(1)}% liegt über deiner Zielschwelle von ${threshold}%.</div>`;
+    } else {
+      verdictEl.className = 'verdict maybe';
+      verdictEl.innerHTML = `<div class="verdict-label">⚠️ Knapp / verhandeln</div><div class="verdict-sub">Positive Netto-Marge, aber unter ${threshold}%. Max. EK für Ziel: ${fmtEUR(maxBuy)}.</div>`;
+    }
   }
+  updateStepProgress();
 }
 
 document.getElementById('style-template').value = loadStyleTemplate() || DESCRIPTION_STYLE;
@@ -2690,13 +3240,93 @@ renderInvoiceHistory();
 syncPhotoUi();
 restoreCloudSession();
 if(!document.getElementById('f-article-no').value)document.getElementById('f-article-no').value=nextArticleNo();
-document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
+document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>{
+  el.addEventListener('input', () => { scheduleDraftSave(); updateStepProgress(); });
+  el.addEventListener('change', () => { scheduleDraftSave(); updateStepProgress(); });
+});
 const titleInput = document.getElementById('generated-title');
 if (titleInput) {
-  titleInput.addEventListener('input', () => { updateTitleCharCount(); scheduleDraftSave(); });
+  titleInput.addEventListener('input', () => { updateTitleCharCount(); scheduleDraftSave(); updateStepProgress(); });
   updateTitleCharCount();
 }
+// Offline-Banner live
+function refreshOnlineBanner() {
+  const b = document.getElementById('offline-banner');
+  if (!b) return;
+  if (navigator.onLine === false) {
+    b.textContent = '○ Offline – Inventar/Rechnungen/Excel lokal nutzbar. KI braucht Internet.';
+    b.style.borderColor = 'var(--danger)';
+  } else {
+    b.textContent = '● Online – Lokaler Modus bereit. KI-Features aktiv, sobald API-Key gesetzt ist.';
+    b.style.borderColor = 'var(--gold)';
+  }
+}
+window.addEventListener('online', refreshOnlineBanner);
+window.addEventListener('offline', refreshOnlineBanner);
+refreshOnlineBanner();
+
+// PWA: Manifest + Service Worker (best effort)
+(function setupPWA(){
+  try {
+    const manifest = {
+      name: 'Preis-Check',
+      short_name: 'Preis-Check',
+      start_url: '.',
+      display: 'standalone',
+      background_color: '#1B1B18',
+      theme_color: '#1B1B18',
+      lang: 'de',
+      icons: [{ src: 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128"><rect width="128" height="128" rx="24" fill="#D9A441"/><text x="50%" y="54%" dominant-baseline="middle" text-anchor="middle" font-size="64" font-family="Arial" fill="#2A2107">€</text></svg>'), sizes: '128x128', type: 'image/svg+xml' }]
+    };
+    const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
+    const url = URL.createObjectURL(blob);
+    let link = document.querySelector('link[rel="manifest"]');
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'manifest';
+      document.head.appendChild(link);
+    }
+    link.href = url;
+    document.documentElement.style.setProperty('color-scheme', 'dark');
+  } catch (e) {}
+  if ('serviceWorker' in navigator) {
+    const swCode = `
+      const CACHE='preis-check-v1';
+      self.addEventListener('install', e => { self.skipWaiting(); });
+      self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()); });
+      self.addEventListener('fetch', e => {
+        // network-first, fallback cache for same-origin navigations
+        e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+      });
+    `;
+    const swUrl = URL.createObjectURL(new Blob([swCode], { type: 'text/javascript' }));
+    navigator.serviceWorker.register(swUrl).then(() => {
+      document.body.classList.add('pwa-ready');
+    }).catch(() => {});
+  }
+})();
+
+// Tastatur-Shortcuts
+document.addEventListener('keydown', (e) => {
+  const tag = (e.target && e.target.tagName || '').toLowerCase();
+  const typing = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target?.isContentEditable;
+  if (typing && !e.ctrlKey && !e.metaKey) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') {
+    e.preventDefault();
+    if (batchActive) batchSaveAndNext(); else saveCurrentItem();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
+    e.preventDefault();
+    if (!document.getElementById('all-generate-btn')?.disabled) generateAllListing();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'enter' && batchActive) {
+    e.preventDefault();
+    batchSaveAndNext();
+  }
+});
+
+updateStepProgress();
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbcfdb89b7efb7',t:'MTc4NDQ4NTk3OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbdc707febefb7',t:'MTc4NDQ4NjQ5NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
