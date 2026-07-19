@@ -525,8 +525,8 @@
   <div class="modal">
     <h3>KI-Einstellungen</h3>
     <p>
-      <b>Empfehlung:</b> Groq (Llama) ist derzeit am <b>schnellsten</b> und hat die <b>meisten Free-Uses</b> (~14.400 Requests/Tag mit llama-3.1-8b-instant).<br>
-      Der Default ist jetzt das Modell mit den höchsten Rate-Limits.<br><br>
+      <b>Empfehlung:</b> Groq (Llama) ist derzeit am zuverlässigsten und nutzt den Supabase-Proxy.<br>
+      Gemini kann aktuell Quota-/Rate-Limit-Probleme haben.<br><br>
       <b>Groq-Key holen:</b> Kostenlos auf <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a><br>
       <b>Gemini-Key (optional):</b> <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>
     </p>
@@ -565,9 +565,9 @@ const MODEL_KEY = 'preis-check-ai-model';
 
 const AI_MODELS = {
   groq: [
-    { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B' },
+    { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (empfohlen)' },
     { id: 'llama-3.1-70b-versatile', label: 'Llama 3.1 70B' },
-    { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (schnell + meisten Free-Uses)' },
+    { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (schnell)' },
     { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
     { id: 'gemma2-9b-it', label: 'Gemma 2 9B' }
   ],
@@ -870,9 +870,8 @@ function getApiKey(){return getProvider()==='groq'?(localStorage.getItem(GROQKEY
 function getModel(){
   const saved = localStorage.getItem(MODEL_KEY);
   if (saved) return saved;
-  // Modell mit den MEISTEN free uses (höchste Rate-Limits / Quota) als Default → schnellste & großzügigste Antworten
-  // llama-3.1-8b-instant hat auf Groq Free-Tier ~14.400 Requests/Tag (vs. ~1.000 beim 70B)
-  return getProvider()==='groq' ? 'llama-3.1-8b-instant' : 'gemini-1.5-flash';
+  // Modell mit den meisten Tokens / Parametern als Default (beste Qualität / meisten Uses)
+  return getProvider()==='groq' ? 'llama-3.3-70b-versatile' : 'gemini-1.5-pro';
 }
 function getSelectedModel(){ return localStorage.getItem(MODEL_KEY) || getModel(); }
 
@@ -1747,5 +1746,5 @@ function hideTitleMeta() {
   if (p) p.style.display = 'none';
 }
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db3f53face9239',t:'MTc4NDQ4MDA1OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db3cb898469239',t:'MTc4NDQ3OTk1Mg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
