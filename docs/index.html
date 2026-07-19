@@ -199,7 +199,29 @@
   .metric strong { display:block; font:18px 'IBM Plex Mono',monospace; margin-top:5px; }
   .photo-strip { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
   .photo-strip img { width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid var(--card-border); }
-  @media(max-width:760px){ body{padding:12px 12px 50px;} .sidebar{position:static;width:auto;margin-bottom:14px;} .wrap{max-width:none;} }
+  @media(max-width:760px){
+    body{padding:12px 10px 76px;font-size:14px;}
+    .wrap{max-width:none;width:100%;}
+    .sidebar{position:fixed;left:0;right:0;bottom:0;top:auto;width:100%;height:64px;margin:0;padding:5px 4px;background:rgba(36,36,32,.98);border-radius:10px 10px 0 0;display:flex;align-items:center;gap:2px;z-index:100;box-shadow:0 -4px 18px rgba(0,0,0,.35);}
+    .sidebar-title,.danger-btn{display:none;}
+    .nav-btn{width:auto;flex:1;text-align:center;padding:8px 3px;margin:0;font-size:10px;line-height:1.15;white-space:normal;}
+    .nav-btn:nth-of-type(1)::first-line{font-size:16px;}
+    .top-row{align-items:center;}
+    h1{font-size:20px;}
+    .panel{padding:12px;margin-bottom:10px;}
+    .grid-fields{grid-template-columns:1fr 1fr;gap:8px;}
+    .research-grid{grid-template-columns:1fr 1fr;}
+    .research-btn{font-size:11px;padding:9px 4px;}
+    input,select,textarea{font-size:16px!important;}
+    button.primary,button.ghost{min-height:40px;padding:9px 10px;}
+    .analyze-row{flex-wrap:wrap;}
+    .add-price-row{flex-wrap:wrap;}.add-price-row input{min-width:140px;}
+    .invoice-paper{padding:16px 10px;overflow-x:auto;}
+    .invoice-paper table{min-width:420px;}
+    .inventory-toolbar{display:grid;grid-template-columns:1fr 1fr;}.inventory-toolbar input{grid-column:1/-1;}
+    .inventory-card{min-width:0;}.inventory-actions{flex-wrap:wrap;}.inventory-actions button{flex:1;}
+    .photo-strip img{width:62px;height:62px;}
+  }
 </style>
 </head>
 <body>
@@ -235,7 +257,7 @@
     <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
       <img id="preview-img" style="display:none;" />
       <div class="hint" id="dropzone-hint">Foto hierher ziehen oder klicken zum Auswählen</div>
-      <input type="file" id="file-input" accept="image/*" multiple onchange="handleFiles(this.files)" />
+      <input type="file" id="file-input" accept="image/*" capture="environment" multiple onchange="handleFiles(this.files)" />
     </div>
     <div class="analyze-row">
       <button class="ghost" id="analyze-btn" onclick="analyzeImage()" disabled>Foto analysieren</button>
@@ -1107,5 +1129,5 @@ loadDraft();
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1da2f6daba1d3aa',t:'MTc4NDQ2ODkyMg=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1da32c95aa4bce2',t:'MTc4NDQ2OTA2MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
