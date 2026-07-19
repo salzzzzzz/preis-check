@@ -295,24 +295,29 @@
       <span class="analyze-status" id="analyze-status"></span>
     </div>
 
-    <!-- Automatische Titel-Metadaten (exakt wie gewünscht) -->
-    <div id="title-meta-panel" style="display:none; margin:4px 0 8px; background:#161613; border:1px solid var(--card-border); border-radius:6px; padding:8px; font-size:11px;">
-      <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px 14px; margin-bottom:4px;">
-        <div><b>Marke:</b> <span id="tm-brand"></span></div>
-        <div><b>Größe:</b> <span id="tm-size"></span></div>
-        <div><b>Kategorie:</b> <span id="tm-cat"></span></div>
-        <div><b>Farbe:</b> <span id="tm-color"></span></div>
-        <div><b>Era/Style:</b> <span id="tm-era"></span></div>
+    <!-- Automatische Titel-Metadaten mit KI (Regeln: Marke zuerst, Farbe, Größe, Style, min. 50 Zeichen, Kategorie) -->
+    <div id="title-meta-panel" style="display:none; margin:4px 0 8px; background:#161613; border:1px solid var(--card-border); border-radius:6px; padding:10px; font-size:11px;">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+        <b style="color:var(--gold);">🤖 Titel-Generator</b>
+        <span style="font-size:10px; color:var(--ink-muted);">Regeln: Marke · Farbe · Größe · Style · ≥50 Zeichen · Kategorie</span>
       </div>
-      <div>
-        <b>Optimale Länge (64 Zeichen)</b><br>
-        <span id="tm-title" style="font-family:'IBM Plex Mono',monospace; color:#d9a441; font-size:13px;"></span>
-        <span id="tm-len" style="font-size:10px; color:var(--ink-muted); margin-left:5px;"></span>
-        <button onclick="applySmartTitle()" class="ghost" style="font-size:10px; padding:1px 7px; margin-left:8px;">Übernehmen</button>
-        <button onclick="enhanceTitleWithAI()" class="ghost" style="font-size:10px; padding:1px 7px;">KI optimieren</button>
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:3px 14px; margin-bottom:6px;">
+        <div><b>🔑 Marke:</b> <span id="tm-brand"></span></div>
+        <div><b>📏 Größe:</b> <span id="tm-size"></span></div>
+        <div><b>📂 Kategorie:</b> <span id="tm-cat"></span></div>
+        <div><b>🎨 Farbe:</b> <span id="tm-color"></span></div>
+        <div><b>🕰️ Style:</b> <span id="tm-era"></span></div>
       </div>
-      <div style="text-align:right; margin-top:3px;">
-        <button onclick="hideTitleMeta()" class="ghost" style="font-size:10px; padding:1px 5px;">Schließen</button>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:4px;">
+        <b style="white-space:nowrap;">Titel:</b>
+        <span id="tm-title" style="font-family:'IBM Plex Mono',monospace; color:#d9a441; font-size:13px; flex:1;"></span>
+        <span id="tm-len" style="font-size:10px; color:var(--ink-muted); white-space:nowrap;"></span>
+      </div>
+      <div id="tm-checklist" style="display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; font-size:10px;"></div>
+      <div style="display:flex; gap:6px; align-items:center;">
+        <button onclick="applySmartTitle()" class="ghost" style="font-size:10px; padding:2px 8px;">✅ Übernehmen</button>
+        <button onclick="enhanceTitleWithAI()" class="ghost" style="font-size:10px; padding:2px 8px;">🤖 KI optimieren</button>
+        <button onclick="hideTitleMeta()" class="ghost" style="font-size:10px; padding:2px 6px; margin-left:auto;">✕</button>
       </div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
@@ -1679,40 +1684,133 @@ document.querySelectorAll('#check-view input, #check-view select, #check-view te
 calculate();
 
 // ========== AUTOMATISCHE TITEL-METADATEN (Vinted 64 Zeichen) ==========
+// REGELN:
+// 1. Markenname als wichtigstes Keyword an ERSTER Stelle
+// 2. Farbe erkennen & einbauen
+// 3. Größe einbauen
+// 4. Vintage, Y2K, 90s oder ähnlichen Style hinzufügen
+// 5. Min. 50 Zeichen und Kategorie MUSS enthalten sein
+
+const ERA_KEYWORDS = [
+  'Vintage', 'Y2K', '90s', '80s', '00s', 'Retro', 'Old School',
+  'Streetwear', 'Skater', 'Grunge', 'Preppy', 'Oversize', 'Baggy',
+  'Cropped', 'Acid Wash', 'Distressed', 'Vintage Wash', 'Used Look'
+];
+
+const COLOR_LIST = [
+  'schwarz','weiß','weiss','rot','blau','grün','gelb','pink','rosa',
+  'grau','beige','braun','navy','khaki','oliv','creme','mint','lila',
+  'orange','türkis','bordeaux','dunkelblau','hellblau','dunkelgrau',
+  'hellgrau','anthrazit','cognac','silber','gold','schwarzweiß','weißschwarz'
+];
+
+function detectColor(text) {
+  const t = (text || '').toLowerCase();
+  for (let c of COLOR_LIST) {
+    if (t.includes(c)) return c.charAt(0).toUpperCase() + c.slice(1);
+  }
+  return '';
+}
+
+function detectEra(text) {
+  const t = (text || '').toLowerCase();
+  // direkte Matches
+  for (let era of ERA_KEYWORDS) {
+    if (t.includes(era.toLowerCase())) return era;
+  }
+  // Heuristiken
+  if (/polo|ralph|lauren|tommy|hilfiger|preppy|nautica|fred perry|lacoste/.test(t)) return 'Preppy';
+  if (/carhartt|dickies|workwear|utility/.test(t)) return 'Workwear';
+  if (/levi.?s|jeans|denim|501|wrangler|lee/.test(t)) return 'Vintage';
+  if (/nike|adidas|puma|reebok|sneaker|jordan|dunk|air force/.test(t)) return 'Retro';
+  if (/oversize|baggy|wide|loose/.test(t)) return 'Oversize';
+  if (/sweater|hoodie|pullover|crewneck/.test(t)) return 'Streetwear';
+  // kein Match → generischer Fallback
+  return '';
+}
+
 function generateSmartTitle() {
   const brand = (document.getElementById('f-brand')?.value || '').trim();
   const name = (document.getElementById('f-name')?.value || '').trim();
   const cat = (document.getElementById('f-category')?.value || '').trim();
   const size = (document.getElementById('f-size')?.value || '').trim();
   const condition = (document.getElementById('f-condition')?.value || '').trim();
+  const defects = (document.getElementById('f-defects')?.value || '').trim();
 
-  const fullText = (brand + ' ' + name + ' ' + cat + ' ' + condition).toLowerCase();
+  const fullText = (brand + ' ' + name + ' ' + cat + ' ' + defects).toLowerCase();
 
-  // Farbe erkennen
-  let color = '';
-  const colorList = ['schwarz','weiß','weiss','rot','blau','grün','gelb','pink','rosa','grau','beige','braun','navy','khaki','oliv','creme','mint','schwarzweiß'];
-  for (let c of colorList) {
-    if (fullText.includes(c)) { color = c.charAt(0).toUpperCase() + c.slice(1); break; }
+  // Farbe erkennen (auch aus Name/Defekten)
+  let color = detectColor(fullText);
+
+  // Era / Style erkennen
+  let era = detectEra(fullText);
+  // Fallback: wenn nichts erkannt, aber es ist Kleidung → Vintage als Aufwertung
+  if (!era && (cat || brand)) {
+    const clothingHints = /sweater|hoodie|jacke|jeans|hemd|shirt|polo|pullover|mantel|blazer|weste|kleid|rock|hose|anzug|bluse/.test(fullText);
+    if (clothingHints) era = 'Vintage';
   }
 
-  // Era / Style
-  let era = '';
-  if (/y2k|vintage|retro|90s|80s|00s|2000s/.test(fullText)) era = 'Y2K/Vintage';
-  else if (/streetwear|casual|basic|oversize/.test(fullText)) era = 'Streetwear';
-  else if (/preppy|ralph|lauren|pol|tommy/.test(fullText)) era = 'Preppy';
-
-  // Optimaler Titel zusammenbauen (max 64 Zeichen)
+  // ── TITEL AUFBAUEN (Reihenfolge ist Pflicht) ──
+  // Regel 1: Markenname IMMER zuerst (wichtigstes Keyword)
   let titleParts = [];
   if (brand) titleParts.push(brand);
-  if (name && !titleParts.some(p => name.toLowerCase().includes(p.toLowerCase()))) titleParts.push(name);
-  if (size) titleParts.push(size);
-  if (cat) titleParts.push(cat);
-  if (color) titleParts.push(color);
+
+  // Regel 5: Kategorie MUSS enthalten sein
+  if (cat && !titleParts.some(p => cat.toLowerCase().includes(p.toLowerCase()) || p.toLowerCase().includes(cat.toLowerCase()))) {
+    titleParts.push(cat);
+  }
+
+  // Name (wenn nicht redundant)
+  if (name && !titleParts.some(p => 
+    name.toLowerCase().includes(p.toLowerCase()) || p.toLowerCase().includes(name.toLowerCase())
+  )) {
+    titleParts.push(name);
+  }
+
+  // Regel 3: Größe
+  if (size && !titleParts.some(p => p.toLowerCase() === size.toLowerCase())) {
+    titleParts.push(size);
+  }
+
+  // Regel 2: Farbe
+  if (color && !titleParts.some(p => p.toLowerCase().includes(color.toLowerCase()))) {
+    titleParts.push(color);
+  }
+
+  // Regel 4: Era/Style (Vintage, Y2K, 90s…)
+  if (era && !titleParts.some(p => p.toLowerCase().includes(era.toLowerCase()))) {
+    titleParts.push(era);
+  }
 
   let title = titleParts.join(' ').replace(/\s+/g, ' ').trim();
-  if (title.length > 64) title = title.substring(0, 61) + '…';
 
-  // Panel anzeigen
+  // ── Regel 5: Min. 50 Zeichen ──
+  // Wenn zu kurz, mit Aufwertungs-Keywords auffüllen
+  const boostWords = ['Vintage', 'Retro', 'Y2K', '90s', 'Oversize', 'Streetwear', 'Used', 'Original', 'Klassiker', 'Rarität'];
+  let attempts = 0;
+  while (title.length < 50 && attempts < 15) {
+    for (let w of boostWords) {
+      if (title.length >= 50) break;
+      if (!title.toLowerCase().includes(w.toLowerCase())) {
+        title = title + ' ' + w;
+      }
+    }
+    // Wenn immer noch zu kurz: Kategorie-Wiederholung oder längere Form
+    if (title.length < 50 && cat && !title.includes(cat + ' ' + cat)) {
+      title = title + ' ' + cat;
+    }
+    attempts++;
+  }
+
+  // Auf 64 Zeichen kürzen (Vinted-Limit)
+  if (title.length > 64) {
+    // Versuche smart zu kürzen: letztes Wort abschneiden bis es passt
+    title = title.substring(0, 64);
+    const lastSpace = title.lastIndexOf(' ');
+    if (lastSpace > 40) title = title.substring(0, lastSpace);
+  }
+
+  // ── Panel aktualisieren ──
   const panel = document.getElementById('title-meta-panel');
   if (panel) panel.style.display = 'block';
 
@@ -1727,7 +1825,28 @@ function generateSmartTitle() {
   const tEl = document.getElementById('tm-title');
   const lEl = document.getElementById('tm-len');
   if (tEl) tEl.textContent = title;
-  if (lEl) lEl.textContent = `${title.length}/64`;
+  if (lEl) {
+    const len = title.length;
+    const lenOk = len >= 50 && len <= 64;
+    lEl.innerHTML = `${len}/64 ${lenOk ? '✅' : '⚠️'}${len < 50 ? ' <50!' : ''}${len > 64 ? ' >64!' : ''}`;
+  }
+
+  // ── Checkliste rendern ──
+  const checklistEl = document.getElementById('tm-checklist');
+  if (checklistEl) {
+    const ti = title.toLowerCase();
+    const rules = [
+      { label: 'Marke an 1. Stelle', ok: brand && title.startsWith(brand) },
+      { label: 'Farbe', ok: color && ti.includes(color.toLowerCase()) },
+      { label: 'Größe', ok: size && ti.includes(size.toLowerCase()) },
+      { label: 'Style (Vintage/Y2K/…)', ok: era && ti.includes(era.toLowerCase()) },
+      { label: '≥50 Zeichen', ok: title.length >= 50 },
+      { label: 'Kategorie enthalten', ok: cat && ti.includes(cat.toLowerCase()) },
+    ];
+    checklistEl.innerHTML = rules.map(r =>
+      `<span style="background:${r.ok ? 'rgba(126,163,107,0.15)' : 'rgba(192,87,74,0.15)'};border:1px solid ${r.ok ? 'var(--success)' : 'var(--danger)'};border-radius:10px;padding:1px 6px;color:${r.ok ? 'var(--success-text)' : 'var(--danger)'};">${r.ok ? '✓' : '✗'} ${r.label}</span>`
+    ).join('');
+  }
 
   window._smartTitle = { title, brand, size, cat, color, era };
 }
@@ -1745,27 +1864,104 @@ function applySmartTitle() {
 
 async function enhanceTitleWithAI() {
   const tEl = document.getElementById('tm-title');
+  const lEl = document.getElementById('tm-len');
   if (!tEl) return;
 
-  tEl.textContent = 'KI optimiert…';
+  tEl.textContent = '🤖 KI optimiert…';
+  if (lEl) lEl.textContent = '…';
   const base = window._smartTitle || {};
-  const prompt = `Erstelle einen verkaufsstarken Vinted-Titel (max 64 Zeichen). Nur den Titel zurückgeben.\nMarke: ${base.brand||''}\nArtikel: ${document.getElementById('f-name').value||''}\nKategorie: ${base.cat||''}\nGröße: ${base.size||''}\nFarbe: ${base.color||''}\nStyle: ${base.era||''}`;
+
+  const prompt = `Du bist ein Vinted-Verkaufsexperte. Erstelle EINEN optimierten Vinted-Titel in DEUTSCH.
+REGELN (UNBEDINGT einhalten):
+1. Der Markenname MUSS an ERSTER Stelle stehen – das ist das wichtigste Keyword für die Suche!
+2. Die Farbe MUSS enthalten sein.
+3. Die Größe MUSS enthalten sein.
+4. Füge EINEN dieser Style-Begriffe hinzu: Vintage, Y2K, 90s, 80s, Retro, Streetwear, Oversize, Old School, Preppy, Grunge.
+5. Der Titel MUSS mindestens 50 Zeichen lang sein und die Kategorie MUSS darin vorkommen.
+6. Maximal 64 Zeichen (Vinted-Limit).
+
+Daten:
+- Marke: ${base.brand || 'unbekannt'}
+- Artikel: ${document.getElementById('f-name')?.value || ''}
+- Kategorie: ${base.cat || ''}
+- Größe: ${base.size || ''}
+- Farbe: ${base.color || 'unbekannt'}
+
+Antworte NUR mit dem fertigen Titel (ein einzelner String, kein JSON, keine Anführungszeichen).`;
 
   try {
     let result = '';
     const prov = getProvider();
-    if (prov === 'groq') {
+    if (prov === 'groq' && supabaseClient) {
       result = await groqRequest(getApiKey() || '', prompt, [], 'description');
-    } else if (supabaseClient) {
+    } else if (prov === 'gemini' && supabaseClient) {
       result = await secureGeminiRequest(prompt, [], 'description');
+    } else {
+      throw new Error('Kein KI-Zugang');
     }
-    result = result.replace(/["'`\n]/g, '').trim();
-    if (result.length > 64) result = result.substring(0,61) + '…';
+    result = result.replace(/^["']|["']$/g, '').replace(/\n/g, ' ').replace(/\s+/g, ' ').trim();
+
+    // Sicherstellen: max 64 Zeichen
+    if (result.length > 64) {
+      result = result.substring(0, 64);
+      const lastSpace = result.lastIndexOf(' ');
+      if (lastSpace > 40) result = result.substring(0, lastSpace);
+    }
+
+    // Sicherstellen: mindestens 50 Zeichen (mit Fallback-Wörtern auffüllen)
+    const fillers = ['Vintage', 'Retro', 'Y2K', '90s', 'Oversize', 'Streetwear', 'Old School', 'Original'];
+    while (result.length < 50) {
+      let added = false;
+      for (let w of fillers) {
+        if (result.length >= 50) break;
+        if (!result.toLowerCase().includes(w.toLowerCase())) {
+          result = result + ' ' + w;
+          if (result.length > 64) {
+            result = result.substring(0, 64);
+            const ls = result.lastIndexOf(' ');
+            if (ls > 40) result = result.substring(0, ls);
+          }
+          added = true;
+        }
+      }
+      if (!added) break;
+    }
 
     tEl.textContent = result;
     window._smartTitle = { ...base, title: result };
+
+    if (lEl) {
+      const len = result.length;
+      const lenOk = len >= 50 && len <= 64;
+      lEl.innerHTML = `${len}/64 ${lenOk ? '✅' : '⚠️'}`;
+    }
+
+    // Checkliste mit KI-Ergebnis updaten
+    const checklistEl = document.getElementById('tm-checklist');
+    if (checklistEl) {
+      const ti = result.toLowerCase();
+      const b = (base.brand || '').toLowerCase();
+      const s = (base.size || '').toLowerCase();
+      const c = (base.cat || '').toLowerCase();
+      const co = (base.color || '').toLowerCase();
+      const e = (base.era || '').toLowerCase();
+      const rules = [
+        { label: 'Marke an 1. Stelle', ok: b && ti.startsWith(b) },
+        { label: 'Farbe', ok: co && ti.includes(co) },
+        { label: 'Größe', ok: s && ti.includes(s) },
+        { label: 'Style (Vintage/Y2K/…)', ok: e && ti.includes(e) },
+        { label: '≥50 Zeichen', ok: result.length >= 50 },
+        { label: 'Kategorie enthalten', ok: c && ti.includes(c) },
+      ];
+      checklistEl.innerHTML = rules.map(r =>
+        `<span style="background:${r.ok ? 'rgba(126,163,107,0.15)' : 'rgba(192,87,74,0.15)'};border:1px solid ${r.ok ? 'var(--success)' : 'var(--danger)'};border-radius:10px;padding:1px 6px;color:${r.ok ? 'var(--success-text)' : 'var(--danger)'};">${r.ok ? '✓' : '✗'} ${r.label}</span>`
+      ).join('');
+    }
   } catch(e) {
-    tEl.textContent = (base.title || '').substring(0,64);
+    // Fallback: lokalen Titel verwenden
+    tEl.textContent = (base.title || '').substring(0, 64);
+    if (lEl) lEl.textContent = `⚠️ ${e.message.substring(0, 30)}`;
+    console.warn('enhanceTitleWithAI failed, using local fallback:', e.message);
   }
 }
 
