@@ -534,18 +534,19 @@ Era/Style: y2k vintage retro streetwear
   <div class="modal">
     <h3>Google Gemini API-Key</h3>
     <p>
-      Kostenlos erhältlich auf aistudio.google.com (Google) bzw. console.groq.com (Groq).
-      Keys werden nur lokal im Browser gespeichert.
-      <b style="color:var(--gold);">Wichtig:</b> Der Supabase-AI-Proxy verlangt eine Anmeldung unter Cloud-Sync.
-      Ohne Login nutzt Groq automatisch deinen lokalen Groq-Key direkt.
-      Gemini geht ohne Login über den lokalen Gemini-Key (Direktaufruf).
+      Keys nur lokal im Browser. KI läuft <b style="color:var(--gold);">direkt</b> über den gewählten Anbieter
+      (ohne Supabase-Proxy – der liefert aktuell 401).
+      Gemini: <a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener" style="color:var(--gold);">aistudio.google.com</a> ·
+      Groq: <a href="https://console.groq.com/keys" target="_blank" rel="noopener" style="color:var(--gold);">console.groq.com/keys</a>
     </p>
     <label class="field-label" style="margin-top:8px;">KI-Anbieter</label>
-    <select id="provider-input" onchange="toggleProviderKey()"><option value="gemini">Gemini</option><option value="groq">Groq · Llama 4 Scout</option></select>
+    <select id="provider-input" onchange="toggleProviderKey()"><option value="gemini">Gemini (direkt)</option><option value="groq">Groq · Llama 4 Scout (direkt)</option></select>
     <input id="api-key-input" placeholder="Gemini API-Key: AIzaSy..." style="margin-top:8px;" />
     <input id="groq-key-input" placeholder="Groq API-Key: gsk_..." style="margin-top:8px;display:none;" />
+    <div id="settings-test-status" class="analyze-status" style="margin-top:10px;min-height:18px;"></div>
     <div class="modal-actions">
       <button class="primary" onclick="saveApiKey()">Speichern</button>
+      <button class="ghost" onclick="testAiConnection()">Verbindung testen</button>
       <button class="ghost" onclick="closeSettings()">Schließen</button>
     </div>
   </div>
@@ -942,39 +943,6 @@ function copyTitle() {
   if (st) st.textContent = 'Titel in Zwischenablage kopiert.';
 }
 
-async function generateTitleSecureGemini() {
-  const st = document.getElementById('title-status');
-  const b = document.getElementById('title-btn');
-  st.textContent = 'Generiere Titel…';
-  b.disabled = true;
-  try {
-    const raw = await secureGeminiRequest(buildTitlePrompt(), pendingImages, 'description');
-    let title;
-    try {
-      const parsed = parseGeminiJSON(raw);
-      title = normalizeGeneratedTitle(parsed.title || raw);
-    } catch (e) {
-      title = normalizeGeneratedTitle(raw);
-    }
-    if (!title || countWords(title) < 20) throw new Error('Leerer Titel');
-    setGeneratedTitle(title, 'Fertig mit Gemini (geschützt) · ' + countWords(title) + ' Wörter.');
-  } catch (e) {
-    setGeneratedTitle(generateLocalTitle(), 'Proxy-Fehler · lokaler Titel erstellt.');
-  } finally {
-    b.disabled = false;
-  }
-}
-
-async function generateTitleGroq(key) {
-  const raw = await groqRequest(key, buildTitlePrompt(), pendingImages, 'description');
-  try {
-    const parsed = parseGeminiJSON(raw);
-    return normalizeGeneratedTitle(parsed.title || raw);
-  } catch (e) {
-    return normalizeGeneratedTitle(raw);
-  }
-}
-
 async function generateTitle() {
   const name = document.getElementById('f-name').value.trim();
   const brand = document.getElementById('f-brand').value.trim();
@@ -987,11 +955,6 @@ async function generateTitle() {
     return;
   }
 
-  if (getProvider() === 'gemini' && supabaseClient && await currentCloudUser().catch(() => null)) {
-    await generateTitleSecureGemini();
-    return;
-  }
-
   const key = getApiKey();
   // Ohne Key: direkt lokalen Langtitel (mind. 50 Wörter) erzeugen
   if (!key) {
@@ -1000,92 +963,47 @@ async function generateTitle() {
     return;
   }
 
-  if (getProvider() === 'groq') {
-    b.disabled = true;
-    st.textContent = 'Generiere Titel…';
-    try {
-      const title = await generateTitleGroq(key);
-      if (!title) throw new Error('Leerer Titel');
-      setGeneratedTitle(title, 'Fertig mit Groq · ' + countWords(title) + ' Wörter.');
-    } catch (e) {
-      setGeneratedTitle(generateLocalTitle(), 'Groq-Fehler: ' + (e.message || 'unbekannt') + ' · lokaler Titel erstellt.');
-    } finally {
-      b.disabled = false;
-    }
-    return;
-  }
-
   b.disabled = true;
   st.textContent = 'Generiere Titel…';
   try {
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: buildTitlePrompt() }] }]
-      })
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody?.error?.message || ('HTTP ' + res.status));
+    let raw;
+    if (getProvider() === 'groq') {
+      raw = await groqDirectRequest(key, buildTitlePrompt(), pendingImages);
+    } else {
+      raw = await geminiDirectRequest(key, buildTitlePrompt(), pendingImages);
     }
-    const data = await res.json();
-    const text = (data?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
     let title;
     try {
-      const parsed = parseGeminiJSON(text);
-      title = normalizeGeneratedTitle(parsed.title || text);
+      const parsed = parseGeminiJSON(raw);
+      title = normalizeGeneratedTitle(parsed.title || raw);
     } catch (e) {
-      title = normalizeGeneratedTitle(text);
+      title = normalizeGeneratedTitle(raw);
     }
     if (!title) throw new Error('Leerer Titel');
-    setGeneratedTitle(title, 'Fertig · ' + countWords(title) + ' Wörter.');
+    setGeneratedTitle(title, 'Fertig mit ' + (getProvider() === 'groq' ? 'Groq' : 'Gemini') + ' · ' + countWords(title) + ' Wörter.');
   } catch (err) {
-    if (/quota|rate limit|429|billing/i.test(err.message)) {
-      setGeneratedTitle(generateLocalTitle(), 'Gemini-Kontingent erreicht · lokaler Titel erstellt.');
+    if (/quota|rate limit|429|billing/i.test(err.message || '')) {
+      setGeneratedTitle(generateLocalTitle(), 'Kontingent erreicht · lokaler Titel erstellt.');
     } else {
-      setGeneratedTitle(generateLocalTitle(), 'Fehler · lokaler Titel erstellt: ' + err.message);
+      setGeneratedTitle(generateLocalTitle(), 'Fehler: ' + (err.message || 'unbekannt') + ' · lokaler Titel erstellt.');
     }
   } finally {
     b.disabled = false;
   }
 }
 
-async function readFunctionError(error) {
-  // supabase-js versteckt bei non-2xx oft den Body – hier holen wir die echte Meldung raus
-  try {
-    if (error?.context) {
-      const res = error.context;
-      if (typeof res.json === 'function') {
-        const body = await res.json();
-        if (body?.error) return String(body.error);
-        if (body?.message) return String(body.message);
-        return JSON.stringify(body);
-      }
-      if (typeof res.text === 'function') {
-        const t = await res.text();
-        if (t) return t;
-      }
-    }
-  } catch (e) { /* ignore parse errors */ }
-  return error?.message || 'AI-Proxy-Fehler';
-}
-
-function isAuthProxyError(msg) {
-  return /anmeldung|login|auth|unauthorized|401|jwt|session|nicht angemeldet|sign in/i.test(String(msg || ''));
-}
-
+// KI läuft direkt über lokalen API-Key (Supabase ai-proxy liefert 401 und wird nicht genutzt).
 async function groqDirectRequest(key, prompt, images = []) {
-  if (!key) throw new Error('Kein Groq API-Key hinterlegt. Bitte unter ⚙️ Gemini API-Key → Groq eintragen.');
-  // Vision nur, wenn Bilder da sind – sonst reines Textmodell
+  const apiKey = key || localStorage.getItem(GROQKEY_KEY) || '';
+  if (!apiKey) throw new Error('Kein Groq API-Key hinterlegt. Öffne ⚙️ → Anbieter „Groq“ → Key von console.groq.com eintragen und speichern.');
+
   const hasImages = Array.isArray(images) && images.length > 0;
+  // Vision-Modell für Fotos, Textmodell sonst
   const model = hasImages ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile';
 
-  const userContent = [];
-  userContent.push({ type: 'text', text: prompt });
+  const userContent = [{ type: 'text', text: prompt }];
   if (hasImages) {
-    images.slice(0, 4).forEach(src => {
+    images.slice(0, 3).forEach(src => {
       if (!src) return;
       const url = String(src).startsWith('data:') ? src : ('data:image/jpeg;base64,' + src);
       userContent.push({ type: 'image_url', image_url: { url } });
@@ -1096,11 +1014,12 @@ async function groqDirectRequest(key, prompt, images = []) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      'authorization': 'Bearer ' + key
+      'authorization': 'Bearer ' + apiKey
     },
     body: JSON.stringify({
       model,
       temperature: 0.4,
+      max_tokens: 2048,
       messages: [
         { role: 'system', content: 'Du hilfst bei deutschem Secondhand-/Vinted-Verkauf. Antworte präzise und im gewünschten Format.' },
         { role: 'user', content: hasImages ? userContent : prompt }
@@ -1111,8 +1030,31 @@ async function groqDirectRequest(key, prompt, images = []) {
   const body = await res.json().catch(() => ({}));
   if (!res.ok) {
     const msg = body?.error?.message || body?.message || ('Groq HTTP ' + res.status);
-    if (res.status === 401) throw new Error('Groq API-Key ungültig. Bitte Key prüfen (console.groq.com).');
-    if (res.status === 429) throw new Error('Groq Rate-Limit erreicht. Bitte kurz warten.');
+    if (res.status === 401 || /invalid.*api.?key|incorrect api key/i.test(msg)) {
+      throw new Error('Groq API-Key ungültig. Bitte unter ⚙️ einen gültigen Key von console.groq.com speichern.');
+    }
+    if (res.status === 429 || /rate limit/i.test(msg)) throw new Error('Groq Rate-Limit erreicht. Bitte 1–2 Minuten warten.');
+    if (/model|decommissioned|not found/i.test(msg)) {
+      // Fallback-Modell ohne Vision
+      if (hasImages) {
+        const res2 = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'authorization': 'Bearer ' + apiKey },
+          body: JSON.stringify({
+            model: 'llama-3.3-70b-versatile',
+            temperature: 0.4,
+            max_tokens: 2048,
+            messages: [
+              { role: 'system', content: 'Du hilfst bei deutschem Secondhand-/Vinted-Verkauf. Antworte präzise und im gewünschten Format. (Kein Bild verfügbar – nutze die Textdaten.)' },
+              { role: 'user', content: prompt }
+            ]
+          })
+        });
+        const body2 = await res2.json().catch(() => ({}));
+        if (!res2.ok) throw new Error(body2?.error?.message || msg);
+        return body2?.choices?.[0]?.message?.content || '';
+      }
+    }
     throw new Error(msg);
   }
   const text = body?.choices?.[0]?.message?.content || '';
@@ -1120,139 +1062,96 @@ async function groqDirectRequest(key, prompt, images = []) {
   return text;
 }
 
-async function groqRequest(key, prompt, images = [], kind = 'photo') {
-  // 1) Wenn angemeldet: zuerst geschützter Proxy
-  const user = await currentCloudUser().catch(() => null);
-  if (supabaseClient && user) {
+async function geminiDirectRequest(key, prompt, images = []) {
+  const apiKey = key || localStorage.getItem(APIKEY_KEY) || '';
+  if (!apiKey) throw new Error('Kein Gemini API-Key hinterlegt. Öffne ⚙️ und trage einen Key von aistudio.google.com ein.');
+
+  const parts = [{ text: prompt }];
+  (images || []).slice(0, 4).forEach(src => {
+    if (!src) return;
+    const data = String(src).includes(',') ? src.split(',')[1] : src;
+    if (data) parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
+  });
+
+  const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash'];
+  let lastErr = null;
+  for (const model of models) {
     try {
-      const { data, error } = await supabaseClient.functions.invoke('ai-proxy', {
-        body: { provider: 'groq', prompt, images, kind }
+      const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(apiKey);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [{ parts }] })
       });
-      if (!error && data?.text && !data?.error) return data.text;
-      const detail = error ? await readFunctionError(error) : (data?.error || 'Leere Proxy-Antwort');
-      // Jeder Proxy-Fehler → falls lokaler Key da ist, direkt versuchen
-      if (key) {
-        try { return await groqDirectRequest(key, prompt, images); }
-        catch (e2) { throw new Error('Proxy: ' + detail + ' · Direkt: ' + e2.message); }
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        lastErr = body?.error?.message || ('Gemini HTTP ' + res.status);
+        if (/API key|invalid|PERMISSION/i.test(lastErr)) throw new Error('Gemini API-Key ungültig. Bitte unter ⚙️ prüfen (aistudio.google.com).');
+        continue;
       }
-      if (isAuthProxyError(detail)) {
-        throw new Error(detail + ' · Bitte anmelden oder lokalen Groq-Key unter ⚙️ speichern.');
-      }
-      throw new Error(detail);
+      const text = (body?.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('').trim();
+      if (text) return text;
+      lastErr = 'Leere Antwort von ' + model;
     } catch (e) {
-      if (e.message && e.message.startsWith('Proxy:')) throw e;
-      if (key) {
-        try { return await groqDirectRequest(key, prompt, images); }
-        catch (e2) { throw new Error((e.message || 'Proxy-Fehler') + ' · Direkt: ' + e2.message); }
-      }
-      throw e;
+      lastErr = e.message || String(e);
+      if (/ungültig|API-Key/i.test(lastErr)) throw e;
     }
   }
-
-  // 2) Ohne Login: direkt mit lokalem Groq-Key
-  return await groqDirectRequest(key, prompt, images);
+  throw new Error(lastErr || 'Gemini-Anfrage fehlgeschlagen.');
 }
 
-async function secureGeminiRequest(prompt, images = [], kind = 'photo') {
-  if (!supabaseClient) throw new Error('Supabase ist nicht geladen.');
-  const user = await currentCloudUser().catch(() => null);
-  if (!user) {
-    throw new Error('Für den geschützten Gemini-Proxy bitte unter Cloud-Sync anmelden – oder auf Groq umstellen bzw. Gemini-Direktkey nutzen.');
+function buildDescriptionPrompt() {
+  const f = getDescriptionFields();
+  const item = [f.name, f.brand, f.category].filter(Boolean).join(', ');
+  return 'Erstelle eine deutsche Vinted-Verkaufsbeschreibung für ' + item +
+    '. Verwende die Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. Farbe: ' + (f.color || 'nicht angegeben') +
+    '. Zustand: ' + (f.condition || 'nicht angegeben') + '. Mängel: ' + (f.defects || 'keine angegeben') +
+    '. Größe: ' + (f.size || 'nicht angegeben') + '. Era/Style: ' + (f.era || 'y2k vintage retro streetwear') +
+    '. Maße nur verwenden, wenn vorhanden: ' +
+    [f.chest && ('Achsel zu Achsel: ' + f.chest), f.length && ('Gesamtlänge: ' + f.length), f.shoulder && ('Schulterbreite: ' + f.shoulder), f.sleeve && ('Ärmellänge: ' + f.sleeve)].filter(Boolean).join('; ') +
+    '. Beispielstil:\n\n' + DESCRIPTION_STYLE + '\n\n' + DETAILS_STYLE_RULES +
+    ' Erfinde keine Fakten. Antworte ausschließlich als JSON mit description und extra_hashtags (20 bis 30 passende Hashtags ohne #).';
+}
+
+function applyGeneratedDescription(raw, statusText) {
+  let description = '';
+  let extraTags = [];
+  try {
+    const o = parseGeminiJSON(raw);
+    description = (o.description || '').trim();
+    extraTags = Array.isArray(o.extra_hashtags) ? o.extra_hashtags : [];
+  } catch (e) {
+    description = String(raw || '').trim();
   }
-  const { data, error } = await supabaseClient.functions.invoke('ai-proxy', {
-    body: { provider: 'gemini', prompt, images, kind }
-  });
-  if (error) throw new Error(await readFunctionError(error));
-  if (data?.error) throw new Error(data.error);
-  return data?.text || '';
+  const seen = new Set(FIXED_DESCRIPTION_TAGS);
+  const cleanExtra = extraTags
+    .map(t => String(t).toLowerCase().replace(/[^a-z0-9äöüß]/g, ''))
+    .filter(t => t && !seen.has(t) && (seen.add(t), true));
+  const hashtagLine = [...FIXED_DESCRIPTION_TAGS, ...cleanExtra].map(t => '#' + t).join(' ');
+  document.getElementById('generated-description').value = normalizeGeneratedDescription(description) + '\n\n' + hashtagLine;
+  const st = document.getElementById('desc-status');
+  if (st) st.textContent = statusText || 'Fertig.';
 }
-
-async function generateDescriptionGroq(key){
-  const f=getDescriptionFields();
-  const prompt='Erstelle für folgenden Artikel eine deutsche Vinted-Verkaufsbeschreibung: '+[f.name,f.brand,f.category].filter(Boolean).join(', ')+
-    '. Farbe: '+(f.color||'nicht angegeben')+'. Zustand: '+(f.condition||'nicht angegeben')+'. Mängel: '+(f.defects||'keine angegeben')+
-    '. Größe: '+(f.size||'nicht angegeben')+'. Era/Style: '+(f.era||'y2k vintage retro streetwear')+
-    '. Maße nur verwenden, wenn vorhanden: '+[f.chest&&('Achsel zu Achsel: '+f.chest),f.length&&('Gesamtlänge: '+f.length),f.shoulder&&('Schulterbreite: '+f.shoulder),f.sleeve&&('Ärmellänge: '+f.sleeve)].filter(Boolean).join('; ')+
-    '. Verwende die festgelegten Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. '+DETAILS_STYLE_RULES+' Erfinde keine Fakten. Antworte als JSON mit description und extra_hashtags (20 bis 30 passende Hashtags ohne #).';
-  const raw=await groqRequest(key,prompt,pendingImages,'description');const parsed=parseGeminiJSON(raw);const tags=[...FIXED_DESCRIPTION_TAGS,...(parsed.extra_hashtags||[]).map(x=>String(x).toLowerCase().replace(/[^a-z0-9äöüß]/g,'')).filter(x=>x&&!FIXED_DESCRIPTION_TAGS.includes(x))];document.getElementById('generated-description').value=normalizeGeneratedDescription(parsed.description||'')+'\n\n'+tags.map(t=>'#'+t).join(' ');
-}
-async function analyzeImageGroq(key){const status=document.getElementById('analyze-status');status.textContent='Analysiere Bild mit Groq…';const condition=document.getElementById('f-condition').value,defects=document.getElementById('f-defects').value.trim();const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. '+(condition?'Zustand: '+condition+'.':'')+(defects?' Mängel: '+defects+'.':'')+' Antworte ausschließlich als JSON mit name, brand, category, color (Hauptfarbe auf Deutsch), condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const raw=await groqRequest(key,prompt,pendingImages,'photo');const parsed=parseGeminiJSON(raw);if(parsed.name)document.getElementById('f-name').value=parsed.name;if(parsed.brand)document.getElementById('f-brand').value=parsed.brand;if(parsed.category)document.getElementById('f-category').value=parsed.category;if(parsed.color&&document.getElementById('f-color')&&!document.getElementById('f-color').value)document.getElementById('f-color').value=parsed.color;if(!condition&&parsed.condition)document.getElementById('f-condition').value=parsed.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(parsed.price_low),high=Number(parsed.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();status.textContent=`Erkannt · Groq-Preisvorschlag: ${fmtEUR(low)}–${fmtEUR(high)}`}
-
-async function generateDescriptionSecureGemini(){
- const st=document.getElementById('desc-status'),b=document.getElementById('desc-btn');st.textContent='Generiere Beschreibung…';b.disabled=true;
- try{const f=getDescriptionFields();const item=[f.name,f.brand,f.category].filter(Boolean).join(', ');const prompt='Erstelle eine deutsche Vinted-Verkaufsbeschreibung für '+item+'. Verwende die Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. Farbe: '+(f.color||'nicht angegeben')+'. Zustand: '+(f.condition||'nicht angegeben')+'. Mängel: '+(f.defects||'keine angegeben')+'. Größe: '+(f.size||'nicht angegeben')+'. Era/Style: '+(f.era||'y2k vintage retro streetwear')+'. Maße nur verwenden, wenn vorhanden. '+DETAILS_STYLE_RULES+' Erfinde keine Fakten. Antworte ausschließlich als JSON mit description und extra_hashtags (20 bis 30 passende Hashtags ohne #).';const raw=await secureGeminiRequest(prompt,pendingImages,'description');const o=parseGeminiJSON(raw),tags=[...FIXED_DESCRIPTION_TAGS,...(o.extra_hashtags||[]).map(x=>String(x).toLowerCase().replace(/[^a-z0-9äöüß]/g,'')).filter(x=>x&&!FIXED_DESCRIPTION_TAGS.includes(x))];document.getElementById('generated-description').value=normalizeGeneratedDescription(o.description||'')+'\n\n'+tags.map(t=>'#'+t).join(' ');st.textContent='Fertig mit Gemini (geschützt).'}catch(e){document.getElementById('generated-description').value=generateLocalDescription();st.textContent='Proxy-Fehler · lokale Beschreibung erstellt.'}finally{b.disabled=false}}
-async function analyzeImageSecureGemini(){const st=document.getElementById('analyze-status');st.textContent='Analysiere Bild (geschützt)…';const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. Antworte ausschließlich als JSON mit name, brand, category, color (Hauptfarbe auf Deutsch), condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const o=parseGeminiJSON(await secureGeminiRequest(prompt,pendingImages,'photo'));if(o.name)document.getElementById('f-name').value=o.name;if(o.brand)document.getElementById('f-brand').value=o.brand;if(o.category)document.getElementById('f-category').value=o.category;if(o.color&&document.getElementById('f-color')&&!document.getElementById('f-color').value)document.getElementById('f-color').value=o.color;if(!document.getElementById('f-condition').value&&o.condition)document.getElementById('f-condition').value=o.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(o.price_low),high=Number(o.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();st.textContent='Erkannt · Gemini-Preisvorschlag (geschützt)'}
 
 async function generateDescription() {
-  if(getProvider()==='gemini' && supabaseClient && await currentCloudUser().catch(()=>null)){await generateDescriptionSecureGemini();return;}
   const key = getApiKey();
   if (!key) { openSettings(); return; }
-  if (getProvider()==='groq') { const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status'); b.disabled=true; st.textContent='Generiere Beschreibung…'; try { await generateDescriptionGroq(key); st.textContent='Fertig mit Groq.'; } catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler: '+(e.message||'unbekannt')+' · lokale Beschreibung erstellt.'; } finally { b.disabled=false; } return; }
-  const style = DESCRIPTION_STYLE;
   const f = getDescriptionFields();
   const descStatus = document.getElementById('desc-status');
   const descBtn = document.getElementById('desc-btn');
-
-  if (!style) { descStatus.textContent = 'Bitte zuerst einen Beispiel-Stil eintragen.'; return; }
   if (!f.name && !f.brand && !f.category) { descStatus.textContent = 'Bitte zuerst Artikel-Daten ausfüllen oder Foto analysieren.'; return; }
 
   descStatus.textContent = 'Generiere Beschreibung…';
   descBtn.disabled = true;
   try {
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key);
-    const itemLine = [f.name, f.brand, f.category, f.color ? ('Farbe: ' + f.color) : '', f.condition ? ('Zustand: ' + f.condition) : ''].filter(Boolean).join(', ');
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [{
-            text: 'Erstelle eine Verkaufsbeschreibung für folgenden Artikel: ' + itemLine + '. Verwende exakt diese Struktur und diesen Stil: klare Überschriften mit Emojis, kurze Bulletpoints, sachlich-freundlich und passend für Vinted. Beispiel:\n\n' + style + '\n\n' +
-              'Zustand: ' + (f.condition || 'nicht angegeben') + '. Größe/Tag: ' + (f.size || 'nicht angegeben') + '. Farbe: ' + (f.color || 'nicht angegeben') + '. Era/Style: ' + (f.era || 'y2k vintage retro streetwear') + '. ' +
-              'Maße nur aufnehmen, wenn sie ausgefüllt wurden: ' +
-              (f.chest || f.length || f.shoulder || f.sleeve ? [f.chest ? ('Achsel zu Achsel (Brustweite): ca. ' + f.chest) : '', f.length ? ('Gesamtlänge: ca. ' + f.length) : '', f.shoulder ? ('Schulterbreite: ca. ' + f.shoulder) : '', f.sleeve ? ('Ärmellänge: ca. ' + f.sleeve) : ''].filter(Boolean).join('; ') : 'KEINE MAẞE ANGEBEN') + '. ' +
-              'Erstelle die Abschnitte ZUSTAND, GRÖẞE, DETAILS und VERSAND. Wenn keine Maße vorhanden sind, lasse den gesamten Abschnitt MAẞE weg. ' + DETAILS_STYLE_RULES + ' Erfinde keine Fakten; formuliere unbekannte Details allgemein. ' +
-              'Gib zusätzlich 20 bis 30 passende Hashtags zurück, ohne #-Symbol und ohne die festen Tags vinted, pasha, pashastyle, y2k, vintage, retro, streetwear. ' +
-              'Antworte ausschließlich als JSON-Objekt ohne Markdown mit description und extra_hashtags.'
-          }]
-        }]
-      })
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody?.error?.message || ('HTTP ' + res.status));
-    }
-    const data = await res.json();
-    const text = (data?.candidates?.[0]?.content?.parts || []).map(b => b.text || '').join('').trim();
-    const cleaned = text.replace(/^```json/i, '').replace(/^```/,'').replace(/```$/,'').trim();
-
-    const FIXED_HASHTAGS = ['pashastyle', 'pasha', 'vintage', 'y2k', 'retro', 'streetwear'];
-    let description = cleaned;
-    let extraTags = [];
-    try {
-      const parsed = JSON.parse(cleaned);
-      description = (parsed.description || '').trim();
-      extraTags = Array.isArray(parsed.extra_hashtags) ? parsed.extra_hashtags : [];
-    } catch (e) {
-      // model didn't return valid JSON — fall back to using the raw text as description, fixed hashtags still get added
-    }
-
-    const seen = new Set(FIXED_DESCRIPTION_TAGS);
-    const cleanExtra = extraTags
-      .map(t => String(t).toLowerCase().replace(/[^a-z0-9äöüß]/g, ''))
-      .filter(t => t && !seen.has(t) && (seen.add(t), true));
-
-    const allTags = [...FIXED_DESCRIPTION_TAGS, ...cleanExtra];
-    const hashtagLine = allTags.map(t => '#' + t).join(' ');
-    const finalText = description + '\n\n' + hashtagLine;
-
-    document.getElementById('generated-description').value = normalizeGeneratedDescription(description) + '\n\n' + hashtagLine;
-    descStatus.textContent = 'Fertig.';
+    const prompt = buildDescriptionPrompt();
+    const raw = getProvider() === 'groq'
+      ? await groqDirectRequest(key, prompt, pendingImages)
+      : await geminiDirectRequest(key, prompt, pendingImages);
+    applyGeneratedDescription(raw, 'Fertig mit ' + (getProvider() === 'groq' ? 'Groq' : 'Gemini') + '.');
   } catch (err) {
-    if (/quota|rate limit|429|billing/i.test(err.message)) {
-      document.getElementById('generated-description').value = generateLocalDescription();
-      descStatus.textContent = 'Gemini-Kontingent erreicht · lokale Beschreibung erstellt.';
-    } else descStatus.textContent = 'Fehler: ' + err.message;
+    document.getElementById('generated-description').value = generateLocalDescription();
+    descStatus.textContent = 'Fehler: ' + (err.message || 'unbekannt') + ' · lokale Beschreibung erstellt.';
   } finally {
     descBtn.disabled = false;
   }
@@ -1338,7 +1237,28 @@ function getApiKey(){return getProvider()==='groq'?(localStorage.getItem(GROQKEY
 function toggleProviderKey(){const groq=document.getElementById('provider-input').value==='groq';document.getElementById('api-key-input').style.display=groq?'none':'block';document.getElementById('groq-key-input').style.display=groq?'block':'none'}
 function openSettings(){document.getElementById('provider-input').value=getProvider();document.getElementById('api-key-input').value=localStorage.getItem(APIKEY_KEY)||'';document.getElementById('groq-key-input').value=localStorage.getItem(GROQKEY_KEY)||'';toggleProviderKey();document.getElementById('settings-overlay').classList.add('open')}
 function closeSettings(){document.getElementById('settings-overlay').classList.remove('open')}
-function saveApiKey(){localStorage.setItem(PROVIDER_KEY,document.getElementById('provider-input').value);localStorage.setItem(APIKEY_KEY,document.getElementById('api-key-input').value.trim());localStorage.setItem(GROQKEY_KEY,document.getElementById('groq-key-input').value.trim());closeSettings()}
+function saveApiKey(){localStorage.setItem(PROVIDER_KEY,document.getElementById('provider-input').value);localStorage.setItem(APIKEY_KEY,document.getElementById('api-key-input').value.trim());localStorage.setItem(GROQKEY_KEY,document.getElementById('groq-key-input').value.trim());const st=document.getElementById('settings-test-status');if(st)st.textContent='Gespeichert.';}
+async function testAiConnection(){
+  // Keys aus den Feldern übernehmen, auch wenn noch nicht auf Speichern gedrückt
+  localStorage.setItem(PROVIDER_KEY,document.getElementById('provider-input').value);
+  localStorage.setItem(APIKEY_KEY,document.getElementById('api-key-input').value.trim());
+  localStorage.setItem(GROQKEY_KEY,document.getElementById('groq-key-input').value.trim());
+  const st=document.getElementById('settings-test-status');
+  const provider=getProvider();
+  const key=getApiKey();
+  if(!key){if(st)st.textContent='Bitte zuerst einen API-Key eintragen.';return;}
+  if(st)st.textContent='Teste '+provider+' …';
+  try{
+    const prompt='Antworte ausschließlich mit dem JSON-Objekt {"ok":true,"provider":"'+provider+'"} ohne Markdown.';
+    const raw=provider==='groq'
+      ? await groqDirectRequest(key,prompt,[])
+      : await geminiDirectRequest(key,prompt,[]);
+    const parsed=(()=>{try{return parseGeminiJSON(raw);}catch(e){return {raw};}})();
+    if(st)st.textContent='✅ Verbindung ok ('+provider+'). Antwort: '+(parsed.ok===true?'ok':String(raw).slice(0,80));
+  }catch(e){
+    if(st)st.textContent='❌ '+(e.message||'Test fehlgeschlagen');
+  }
+}
 
 function fmtEUR(n) {
   if (n === null || n === undefined || isNaN(n)) return '–';
@@ -1406,93 +1326,86 @@ function parseGeminiJSON(text) {
   }
 }
 
+function buildPhotoAnalyzePrompt() {
+  const condition = document.getElementById('f-condition').value;
+  const defects = document.getElementById('f-defects').value.trim();
+  const currentBrand = document.getElementById('f-brand').value.trim();
+  const currentCategory = document.getElementById('f-category').value.trim();
+  const refs = relevantCorrections(currentBrand, currentCategory);
+  const refsText = refs.length
+    ? ' Berücksichtige folgende vom Nutzer bestätigte, echte Verkaufspreise ähnlicher Artikel als Referenz für die Preisspanne: ' +
+      refs.map(r => {
+        const label = [r.brand, r.category].filter(Boolean).join(' ') || r.name || 'Artikel';
+        const range = r.low === r.high ? (r.low + '€') : (r.low + '–' + r.high + '€');
+        return '"' + label + '" (Zustand: ' + (r.condition || 'unbekannt') + ') = ' + range;
+      }).join('; ') + '.'
+    : '';
+  return 'Das ist ein Kleidungsstück fuer einen Wiederverkauf-Shop in Deutschland (Vinted/eBay-Preisniveau).' +
+    (condition ? (' Zustand laut Nutzer: ' + condition + '.') : '') +
+    (defects ? (' Zusätzliche Mängel-/Zustandsinfos: ' + defects + '.') : '') +
+    refsText +
+    ' Antworte NUR mit einem JSON-Objekt (kein Fließtext, keine Code-Fences) mit den Feldern: ' +
+    'name (kurzer, suchmaschinentauglicher Produktname inkl. Marke), brand (vermutete Marke, leer wenn unklar), ' +
+    'category (z.B. Sweater, Jacke, Hoodie, Jeans, Polo), color (Hauptfarbe auf Deutsch, leer wenn unklar), condition (falls vom Nutzer nicht vorgegeben: geschätzter Zustand, ' +
+    'GENAU einer dieser Werte: "Zufriedenstellend", "Gut", "Sehr Gut", "Neu", "Neu mit Etikett"), ' +
+    'price_low (geschätzter unterer Wiederverkaufspreis in Euro als Zahl), ' +
+    'price_high (geschätzter oberer Wiederverkaufspreis in Euro als Zahl). Keine erfundenen exakten Details.';
+}
+
+function applyPhotoAnalysis(parsed) {
+  const condition = document.getElementById('f-condition').value;
+  if (parsed.name) document.getElementById('f-name').value = parsed.name;
+  if (parsed.brand) document.getElementById('f-brand').value = parsed.brand;
+  if (parsed.category) document.getElementById('f-category').value = parsed.category;
+  if (parsed.color && document.getElementById('f-color') && !document.getElementById('f-color').value) {
+    document.getElementById('f-color').value = parsed.color;
+  }
+  const validConditions = ['Zufriedenstellend', 'Gut', 'Sehr Gut', 'Neu', 'Neu mit Etikett'];
+  if (!condition && parsed.condition && validConditions.includes(parsed.condition)) {
+    document.getElementById('f-condition').value = parsed.condition;
+  }
+  prices = prices.filter(p => p.source !== 'ai');
+  const low = parseFloat(parsed.price_low);
+  const high = parseFloat(parsed.price_high);
+  if (!isNaN(low) && low > 0) prices.push({ value: low, source: 'ai' });
+  if (!isNaN(high) && high > 0 && high !== low) prices.push({ value: high, source: 'ai' });
+  renderPrices();
+  calculate();
+  renderResearchLinks();
+  return { low, high };
+}
+
 async function analyzeImage() {
-  if(getProvider()==='gemini' && supabaseClient && await currentCloudUser().catch(()=>null)){try{await analyzeImageSecureGemini()}catch(e){document.getElementById('analyze-status').textContent='Proxy-Fehler: '+e.message}return;}
   const key = getApiKey();
   if (!key) { openSettings(); return; }
-  if (getProvider()==='groq') { document.getElementById('analyze-btn').disabled=true; try { await analyzeImageGroq(key); } catch(e) { document.getElementById('analyze-status').textContent='Groq-Fehler: '+e.message; } finally { document.getElementById('analyze-btn').disabled=false; } return; }
-  if (!pendingImage) return;
+  if (!pendingImage && !(pendingImages && pendingImages.length)) {
+    document.getElementById('analyze-status').textContent = 'Bitte zuerst ein Foto auswählen.';
+    return;
+  }
   const statusEl = document.getElementById('analyze-status');
-  statusEl.textContent = 'Analysiere Foto…';
+  const provider = getProvider();
+  statusEl.textContent = 'Analysiere Foto mit ' + (provider === 'groq' ? 'Groq' : 'Gemini') + '…';
   document.getElementById('analyze-btn').disabled = true;
   try {
-    const imageParts = (pendingImages.length ? pendingImages : [pendingImage]).filter(Boolean).map(src => ({ inline_data: { mime_type: 'image/jpeg', data: src.split(',')[1] } }));
-    const condition = document.getElementById('f-condition').value;
-    const defects = document.getElementById('f-defects').value.trim();
-    const currentBrand = document.getElementById('f-brand').value.trim();
-    const currentCategory = document.getElementById('f-category').value.trim();
-    const refs = relevantCorrections(currentBrand, currentCategory);
-    const refsText = refs.length
-      ? ' Berücksichtige folgende vom Nutzer bestätigte, echte Verkaufspreise ähnlicher Artikel als Referenz für die Preisspanne: ' +
-        refs.map(r => {
-          const label = [r.brand, r.category].filter(Boolean).join(' ') || r.name || 'Artikel';
-          const range = r.low === r.high ? (r.low + '€') : (r.low + '–' + r.high + '€');
-          return `"${label}" (Zustand: ${r.condition || 'unbekannt'}) = ${range}`;
-        }).join('; ') + '.'
-      : '';
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key);
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{
-          parts: [
-            { text: 'Das ist ein Kleidungsstück fuer einen Wiederverkauf-Shop in Deutschland (Vinted/eBay-Preisniveau).' +
-              (condition ? (' Zustand laut Nutzer: ' + condition + '.') : '') +
-              (defects ? (' Zusätzliche Mängel-/Zustandsinfos: ' + defects + '.') : '') +
-              refsText +
-              ' Antworte NUR mit einem JSON-Objekt (kein Fließtext, keine Code-Fences) mit den Feldern: ' +
-              'name (kurzer, suchmaschinentauglicher Produktname inkl. Marke), brand (vermutete Marke, leer wenn unklar), ' +
-              'category (z.B. Sweater, Jacke, Hoodie, Jeans, Polo), color (Hauptfarbe auf Deutsch, leer wenn unklar), condition (falls vom Nutzer nicht vorgegeben: geschätzter Zustand, ' +
-              'GENAU einer dieser Werte: "Zufriedenstellend", "Gut", "Sehr Gut", "Neu", "Neu mit Etikett"), ' +
-              'price_low (geschätzter unterer Wiederverkaufspreis in Euro als Zahl), ' +
-              'price_high (geschätzter oberer Wiederverkaufspreis in Euro als Zahl). ' +
-              'Diese erste Einschätzung dient nur dazu, die Artikeldaten zu vervollständigen; die aktuelle ' +
-              'Preissuche wird direkt danach separat mit Google Search durchgeführt.' },
-            ...imageParts
-          ]
-        }]
-      })
-    });
-    if (!res.ok) {
-      const errBody = await res.json().catch(() => ({}));
-      throw new Error(errBody?.error?.message || ('HTTP ' + res.status));
-    }
-    const data = await res.json();
-    const candidate = data?.candidates?.[0];
-    const text = (candidate?.content?.parts || []).map(b => b.text || '').join('').trim();
-    if (!text) throw new Error(candidate?.finishReason ? ('Keine Antwort von Gemini (' + candidate.finishReason + ').') : 'Keine Antwort von Gemini.');
-    const parsed = parseGeminiJSON(text);
-    if (parsed.name) document.getElementById('f-name').value = parsed.name;
-    if (parsed.brand) document.getElementById('f-brand').value = parsed.brand;
-    if (parsed.category) document.getElementById('f-category').value = parsed.category;
-    if (parsed.color && document.getElementById('f-color') && !document.getElementById('f-color').value) {
-      document.getElementById('f-color').value = parsed.color;
-    }
-    const validConditions = ['Zufriedenstellend', 'Gut', 'Sehr Gut', 'Neu', 'Neu mit Etikett'];
-    if (!condition && parsed.condition && validConditions.includes(parsed.condition)) {
-      document.getElementById('f-condition').value = parsed.condition;
-    }
-
-    // remove any previous AI-estimate chips before adding fresh ones
-    prices = prices.filter(p => p.source !== 'ai');
-    const low = parseFloat(parsed.price_low);
-    const high = parseFloat(parsed.price_high);
-    if (!isNaN(low) && low > 0) prices.push({ value: low, source: 'ai' });
-    if (!isNaN(high) && high > 0 && high !== low) prices.push({ value: high, source: 'ai' });
-    renderPrices();
-    calculate();
-
+    const imgs = (pendingImages.length ? pendingImages : [pendingImage]).filter(Boolean);
+    const prompt = buildPhotoAnalyzePrompt();
+    const raw = provider === 'groq'
+      ? await groqDirectRequest(key, prompt, imgs)
+      : await geminiDirectRequest(key, prompt, imgs);
+    const parsed = parseGeminiJSON(raw);
+    const { low, high } = applyPhotoAnalysis(parsed);
     statusEl.textContent = (!isNaN(low) && !isNaN(high))
-      ? `Erkannt · KI-Preisvorschlag: ${fmtEUR(low)}–${fmtEUR(high)}`
+      ? ('Erkannt · ' + (provider === 'groq' ? 'Groq' : 'Gemini') + '-Preisvorschlag: ' + fmtEUR(low) + '–' + fmtEUR(high))
       : 'Erkannt';
-    renderResearchLinks();
-
   } catch (err) {
-    if (/quota|rate limit|429|billing/i.test(err.message)) {
+    if (/quota|rate limit|429|billing/i.test(err.message || '')) {
       const fallback = localFallbackEstimate();
-      statusEl.textContent = fallback ? 'Gemini-Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.' : 'Gemini-Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
-    } else statusEl.textContent = 'Fehler: ' + err.message;
+      statusEl.textContent = fallback
+        ? 'Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.'
+        : 'Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
+    } else {
+      statusEl.textContent = 'Fehler: ' + (err.message || 'unbekannt');
+    }
   } finally {
     document.getElementById('analyze-btn').disabled = false;
   }
@@ -1702,5 +1615,5 @@ if (titleInput) {
 }
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db9bf658ef5fc5',t:'MTc4NDQ4Mzg1Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dba4adb8f67c50',t:'MTc4NDQ4NDIxMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
