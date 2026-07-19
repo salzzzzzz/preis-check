@@ -199,6 +199,13 @@
   .metric strong { display:block; font:18px 'IBM Plex Mono',monospace; margin-top:5px; }
   .photo-strip { display:flex; flex-wrap:wrap; gap:7px; margin-top:8px; }
   .photo-strip img { width:70px; height:70px; object-fit:cover; border-radius:6px; border:1px solid var(--card-border); }
+  .photo-thumb { position:relative; width:78px; }
+  .photo-thumb img { width:78px; height:78px; object-fit:cover; border-radius:6px; border:1px solid var(--card-border); display:block; background:#161613; }
+  .photo-thumb.main img { border-color: var(--gold); box-shadow: 0 0 0 1px var(--gold); }
+  .photo-thumb .photo-badge { position:absolute; left:4px; top:4px; background:rgba(0,0,0,.72); color:var(--gold); font-size:9px; padding:2px 5px; border-radius:4px; font-family:'IBM Plex Mono',monospace; }
+  .photo-thumb .photo-x { position:absolute; right:3px; top:3px; width:22px; height:22px; border:none; border-radius:50%; background:rgba(0,0,0,.7); color:#fff; cursor:pointer; font-size:12px; line-height:1; padding:0; }
+  .photo-thumb .photo-main-btn { width:100%; margin-top:3px; font-size:10px; padding:4px 2px; min-height:auto; }
+  .photo-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; align-items:center; }
   @media(max-width:760px){
     body{padding:12px 10px 76px;font-size:14px;}
     .wrap{max-width:none;width:100%;}
@@ -256,16 +263,24 @@
     <h2>1 · Artikel erkennen</h2>
     <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
       <img id="preview-img" style="display:none;" />
-      <div class="hint" id="dropzone-hint">Foto hierher ziehen oder klicken zum Auswählen</div>
-      <input type="file" id="file-input" accept="image/*" capture="environment" multiple onchange="handleFiles(this.files)" />
+      <div class="hint" id="dropzone-hint">Mehrere Fotos hierher ziehen oder klicken (Etikett, Vorderseite, Maße-Fotos)</div>
+      <input type="file" id="file-input" accept="image/*" capture="environment" multiple onchange="handleFiles(this.files, false)" />
     </div>
-    <div class="analyze-row" style="flex-wrap:wrap;">
-      <button class="primary" id="all-generate-btn" onclick="generateAllListing()" disabled title="Foto analysieren + Titel + Beschreibung">⚡ Alles generieren</button>
-      <button class="ghost" id="analyze-btn" onclick="analyzeImage()" disabled>Nur Foto analysieren</button>
+    <div class="photo-actions">
+      <button class="ghost" type="button" onclick="event.stopPropagation(); document.getElementById('file-input-add').click()">＋ Weitere Fotos</button>
+      <button class="ghost" type="button" onclick="clearAllPhotos()">Alle Fotos löschen</button>
+      <span class="analyze-status" id="photo-count-status">0/8 Fotos</span>
+      <input type="file" id="file-input-add" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files, true)" />
+    </div>
+    <div id="photo-strip" class="photo-strip"></div>
+    <div class="analyze-row" style="flex-wrap:wrap;margin-top:10px;">
+      <button class="primary" id="all-generate-btn" onclick="generateAllListing()" disabled title="Fotos analysieren + Titel + Beschreibung">⚡ Alles generieren</button>
+      <button class="ghost" id="analyze-btn" onclick="analyzeImage()" disabled>Nur Fotos analysieren</button>
       <span class="analyze-status" id="analyze-status"></span>
     </div>
     <div style="font-size:11px;color:var(--ink-muted);margin:6px 0 2px;">
-      <b style="color:var(--ink);">One-Click:</b> analysiert das Foto, füllt Marke/Kategorie/Farbe/Preise und erzeugt Titel + Beschreibung. Danach nur noch EK eintragen und speichern.
+      <b style="color:var(--ink);">One-Click:</b> nutzt alle Fotos, erkennt Marke/Farbe/Größe/Maße (falls sichtbar), Preise und erzeugt Titel + Beschreibung. Danach nur noch EK eintragen und speichern.
+      Für beste Maße: Etikett + flach liegendes Teil mit Maßband fotografieren.
     </div>
     <div id="all-generate-progress" style="display:none;margin:8px 0 4px;">
       <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink-muted);margin-bottom:4px;">
@@ -279,7 +294,6 @@
       <button class="ghost" onclick="newItem()">Neuer Artikel</button>
       <span class="analyze-status" id="save-status"></span>
     </div>
-    <div id="photo-strip" class="photo-strip"></div>
   </div>
 
   <div class="panel">
@@ -390,14 +404,18 @@
       Die Beschreibung wird immer im festgelegten Vinted-Stil erstellt. Der Block <b style="color:var(--ink);">🖋️ DETAILS</b> folgt fest diesem Muster:
       Headline mit „🔥 Original …“, danach konkrete Bulletpoints und als letzte Zeile der Era/Style (z.B. Vintage / Casual / Clean Fit Style).
     </div>
-    <h2 style="margin-top:16px;">Optionale Maße</h2>
-    <div style="font-size:11px;color:var(--ink-muted);">Nur ausfüllen, wenn du Maße angeben möchtest. Leere Felder werden nicht in die Beschreibung aufgenommen.</div>
+    <h2 style="margin-top:16px;">Größe &amp; Maße</h2>
+    <div style="font-size:11px;color:var(--ink-muted);margin-bottom:6px;">
+      Werden bei der Foto-Analyse automatisch befüllt, wenn Etikett/Maße auf den Bildern erkennbar sind.
+      Manuell überschreibbar. Leere Felder erscheinen nicht in der Beschreibung.
+      <span id="measures-ai-status" class="analyze-status" style="display:block;margin-top:4px;"></span>
+    </div>
     <div class="measure-grid">
-      <div><label class="field-label">Größe / Tag</label><input id="f-size" placeholder="z.B. S" /></div>
-      <div><label class="field-label">Achsel zu Achsel</label><input id="f-chest" placeholder="z.B. 40 cm" /></div>
-      <div><label class="field-label">Gesamtlänge</label><input id="f-length" placeholder="z.B. 65 cm" /></div>
-      <div><label class="field-label">Schulterbreite</label><input id="f-shoulder" placeholder="optional" /></div>
-      <div><label class="field-label">Ärmellänge</label><input id="f-sleeve" placeholder="optional" /></div>
+      <div><label class="field-label">Größe / Tag</label><input id="f-size" placeholder="z.B. S / M / 48" /></div>
+      <div><label class="field-label">Achsel zu Achsel</label><input id="f-chest" placeholder="z.B. 52 cm" /></div>
+      <div><label class="field-label">Gesamtlänge</label><input id="f-length" placeholder="z.B. 68 cm" /></div>
+      <div><label class="field-label">Schulterbreite</label><input id="f-shoulder" placeholder="z.B. 44 cm" /></div>
+      <div><label class="field-label">Ärmellänge</label><input id="f-sleeve" placeholder="z.B. 62 cm" /></div>
     </div>
     <label class="field-label" style="margin-top:12px;">Fester Beschreibungstil</label>
     <div style="background:#161613;border:1px solid var(--card-border);border-radius:6px;padding:10px;color:var(--ink-muted);font-size:12px;margin-bottom:10px;">Der feste Stil mit Zustand, Größe, optionalen Maßen, Details, Versand und Hashtags wird automatisch verwendet.</div>
@@ -1054,7 +1072,7 @@ async function groqDirectRequest(key, prompt, images = []) {
   let userContent;
   if (hasImages) {
     userContent = [{ type: 'text', text: prompt }];
-    images.slice(0, 3).forEach(src => {
+    images.slice(0, 5).forEach(src => {
       if (!src) return;
       const url = String(src).startsWith('data:') ? src : ('data:image/jpeg;base64,' + src);
       userContent.push({ type: 'image_url', image_url: { url } });
@@ -1112,7 +1130,7 @@ async function geminiDirectRequest(key, prompt, images = []) {
   if (!apiKey) throw new Error('Kein Gemini API-Key hinterlegt. Öffne ⚙️ und trage einen Key von aistudio.google.com ein.');
 
   const parts = [{ text: prompt }];
-  (images || []).slice(0, 4).forEach(src => {
+  (images || []).slice(0, 6).forEach(src => {
     if (!src) return;
     const data = String(src).includes(',') ? src.split(',')[1] : src;
     if (data) parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
@@ -1353,33 +1371,105 @@ function resizeImage(dataUrl, maxDim, quality) {
   });
 }
 
-async function handleFile(file) {
-  if (!file) return;
+const MAX_PHOTOS = 8;
+
+function syncPhotoUi() {
+  pendingImage = pendingImages[0] || null;
+  const previewImg = document.getElementById('preview-img');
+  const hint = document.getElementById('dropzone-hint');
+  const countEl = document.getElementById('photo-count-status');
+  if (previewImg) {
+    if (pendingImage) {
+      previewImg.src = pendingImage;
+      previewImg.style.display = 'inline-block';
+      if (hint) hint.style.display = 'none';
+    } else {
+      previewImg.removeAttribute('src');
+      previewImg.style.display = 'none';
+      if (hint) hint.style.display = 'block';
+    }
+  }
+  if (countEl) countEl.textContent = pendingImages.length + '/' + MAX_PHOTOS + ' Fotos';
+  const hasPhoto = pendingImages.length > 0;
+  const analyzeBtn = document.getElementById('analyze-btn');
+  const allBtn = document.getElementById('all-generate-btn');
+  if (analyzeBtn) analyzeBtn.disabled = !hasPhoto;
+  if (allBtn) allBtn.disabled = !hasPhoto;
+  renderPhotoStrip();
+}
+
+async function handleFile(file, append = true) {
+  if (!file || !String(file.type || '').startsWith('image/')) return;
+  if (pendingImages.length >= MAX_PHOTOS) return;
   const reader = new FileReader();
   reader.onload = async (e) => {
-    const resized = await resizeImage(e.target.result, 700, 0.75);
-    pendingImages.push(resized);
-    pendingImage = pendingImages[0];
-    renderPhotoStrip();
-    const previewImg = document.getElementById('preview-img');
-    previewImg.src = pendingImages[0];
-    previewImg.style.display = 'inline-block';
-    document.getElementById('dropzone-hint').style.display = 'none';
-    document.getElementById('analyze-btn').disabled = false;
-    const allBtn = document.getElementById('all-generate-btn');
-    if (allBtn) allBtn.disabled = false;
+    if (pendingImages.length >= MAX_PHOTOS) return;
+    const resized = await resizeImage(e.target.result, 900, 0.8);
+    if (append) pendingImages.push(resized);
+    else {
+      // replace mode handled by handleFiles
+      pendingImages.push(resized);
+    }
+    syncPhotoUi();
   };
   reader.readAsDataURL(file);
 }
 
-
-function handleFiles(files) {
-  pendingImages = [];
-  Array.from(files || []).slice(0, 5).forEach(handleFile);
+function handleFiles(files, append = false) {
+  const list = Array.from(files || []).filter(f => f && String(f.type || '').startsWith('image/'));
+  if (!list.length) return;
+  if (!append) pendingImages = [];
+  const room = Math.max(0, MAX_PHOTOS - pendingImages.length);
+  list.slice(0, room).forEach(f => handleFile(f, true));
+  // reset inputs so same files can be chosen again
+  const a = document.getElementById('file-input');
+  const b = document.getElementById('file-input-add');
+  if (a) a.value = '';
+  if (b) b.value = '';
+  if (list.length > room) {
+    const st = document.getElementById('analyze-status');
+    if (st) st.textContent = 'Maximal ' + MAX_PHOTOS + ' Fotos. ' + room + ' hinzugefügt, Rest übersprungen.';
+  }
 }
+
+function removePhoto(idx) {
+  if (idx < 0 || idx >= pendingImages.length) return;
+  pendingImages.splice(idx, 1);
+  syncPhotoUi();
+}
+
+function setMainPhotoLocal(idx) {
+  if (idx <= 0 || idx >= pendingImages.length) return;
+  const [img] = pendingImages.splice(idx, 1);
+  pendingImages.unshift(img);
+  syncPhotoUi();
+}
+
+function clearAllPhotos() {
+  pendingImages = [];
+  pendingImage = null;
+  syncPhotoUi();
+  const st = document.getElementById('analyze-status');
+  if (st) st.textContent = '';
+}
+
 function renderPhotoStrip() {
   const el = document.getElementById('photo-strip');
-  if (el) el.innerHTML = pendingImages.map(src => `<img src="${src}" alt="Artikelbild">`).join('');
+  if (!el) return;
+  if (!pendingImages.length) {
+    el.innerHTML = '<div class="muted" style="font-size:12px;">Noch keine Fotos – am besten Etikett, Vorderseite und ggf. Maßband-Foto.</div>';
+    return;
+  }
+  el.innerHTML = pendingImages.map((src, i) =>
+    `<div class="photo-thumb${i === 0 ? ' main' : ''}">` +
+      (i === 0 ? '<span class="photo-badge">Haupt</span>' : '') +
+      `<button type="button" class="photo-x" title="Entfernen" onclick="event.stopPropagation();removePhoto(${i})">✕</button>` +
+      `<img src="${src}" alt="Foto ${i + 1}" onclick="setMainPhotoLocal(${i})" title="Als Hauptbild">` +
+      (i === 0
+        ? `<button type="button" class="ghost photo-main-btn" disabled>Hauptbild</button>`
+        : `<button type="button" class="ghost photo-main-btn" onclick="event.stopPropagation();setMainPhotoLocal(${i})">Als Haupt</button>`) +
+    `</div>`
+  ).join('');
 }
 
 const dropzone = document.getElementById('dropzone');
@@ -1388,7 +1478,10 @@ dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
 dropzone.addEventListener('drop', (e) => {
   e.preventDefault();
   dropzone.classList.remove('drag');
-  if (e.dataTransfer.files[0]) handleFile(e.dataTransfer.files[0]);
+  if (e.dataTransfer.files && e.dataTransfer.files.length) {
+    // Drop hängt an bestehende Fotos an, wenn schon welche da sind
+    handleFiles(e.dataTransfer.files, pendingImages.length > 0);
+  }
 });
 
 function parseGeminiJSON(text) {
@@ -1400,11 +1493,52 @@ function parseGeminiJSON(text) {
   }
 }
 
+function normalizeMeasureValue(v) {
+  if (v == null || v === '') return '';
+  if (typeof v === 'number' && Number.isFinite(v) && v > 0) {
+    // ganze cm bevorzugen, sonst 1 Nachkommastelle
+    const n = Math.round(v * 10) / 10;
+    return (Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ',')) + ' cm';
+  }
+  let s = String(v).trim();
+  if (!s || /^(null|undefined|n\/?a|unbekannt|nicht erkennbar|-)$/i.test(s)) return '';
+  // reine Zahl -> cm
+  const m = s.replace(',', '.').match(/(\d+(?:\.\d+)?)/);
+  if (m && /^\s*\d+([.,]\d+)?\s*(cm)?\s*$/i.test(s)) {
+    const n = parseFloat(m[1]);
+    if (n > 0 && n < 300) {
+      const r = Math.round(n * 10) / 10;
+      return (Number.isInteger(r) ? String(r) : String(r).replace('.', ',')) + ' cm';
+    }
+  }
+  if (/\d/.test(s) && !/cm/i.test(s)) s = s + ' cm';
+  return s;
+}
+
+function normalizeSizeTag(v) {
+  if (v == null || v === '') return '';
+  let s = String(v).trim();
+  if (!s || /^(null|undefined|n\/?a|unbekannt|nicht erkennbar|-)$/i.test(s)) return '';
+  // häufige Labels bereinigen
+  s = s.replace(/^(größe|size|tag|gr\.?)\s*[:=]?\s*/i, '').trim();
+  return s;
+}
+
+function setFieldIfEmpty(id, value) {
+  const el = document.getElementById(id);
+  if (!el) return false;
+  if (String(el.value || '').trim()) return false;
+  if (!value) return false;
+  el.value = value;
+  return true;
+}
+
 function buildPhotoAnalyzePrompt() {
   const condition = document.getElementById('f-condition').value;
   const defects = document.getElementById('f-defects').value.trim();
   const currentBrand = document.getElementById('f-brand').value.trim();
   const currentCategory = document.getElementById('f-category').value.trim();
+  const photoCount = (pendingImages && pendingImages.length) || (pendingImage ? 1 : 0);
   const refs = relevantCorrections(currentBrand, currentCategory);
   const refsText = refs.length
     ? ' Berücksichtige folgende vom Nutzer bestätigte, echte Verkaufspreise ähnlicher Artikel als Referenz für die Preisspanne: ' +
@@ -1414,16 +1548,27 @@ function buildPhotoAnalyzePrompt() {
         return '"' + label + '" (Zustand: ' + (r.condition || 'unbekannt') + ') = ' + range;
       }).join('; ') + '.'
     : '';
-  return 'Das ist ein Kleidungsstück fuer einen Wiederverkauf-Shop in Deutschland (Vinted/eBay-Preisniveau).' +
-    (condition ? (' Zustand laut Nutzer: ' + condition + '.') : '') +
-    (defects ? (' Zusätzliche Mängel-/Zustandsinfos: ' + defects + '.') : '') +
-    refsText +
-    ' Antworte NUR mit einem JSON-Objekt (kein Fließtext, keine Code-Fences) mit den Feldern: ' +
-    'name (kurzer, suchmaschinentauglicher Produktname inkl. Marke), brand (vermutete Marke, leer wenn unklar), ' +
-    'category (z.B. Sweater, Jacke, Hoodie, Jeans, Polo), color (Hauptfarbe auf Deutsch, leer wenn unklar), condition (falls vom Nutzer nicht vorgegeben: geschätzter Zustand, ' +
-    'GENAU einer dieser Werte: "Zufriedenstellend", "Gut", "Sehr Gut", "Neu", "Neu mit Etikett"), ' +
+  return 'Du siehst ' + photoCount + ' Foto(s) desselben Kleidungsstücks für einen deutschen Wiederverkauf-Shop (Vinted/eBay). ' +
+    'Nutze ALLE Bilder gemeinsam (Etikett, Vorderseite, Rückseite, Detail, Maßband falls vorhanden). ' +
+    (condition ? ('Zustand laut Nutzer: ' + condition + '. ') : '') +
+    (defects ? ('Zusätzliche Mängel-/Zustandsinfos: ' + defects + '. ') : '') +
+    refsText + ' ' +
+    'Antworte NUR mit einem JSON-Objekt (kein Fließtext, keine Code-Fences) mit den Feldern: ' +
+    'name (kurzer, suchmaschinentauglicher Produktname inkl. Marke), ' +
+    'brand (vermutete Marke, leer wenn unklar), ' +
+    'category (z.B. Sweater, Jacke, Hoodie, Jeans, Polo, Crewneck), ' +
+    'color (Hauptfarbe auf Deutsch, leer wenn unklar), ' +
+    'condition (falls vom Nutzer nicht vorgegeben: geschätzter Zustand, GENAU einer dieser Werte: "Zufriedenstellend", "Gut", "Sehr Gut", "Neu", "Neu mit Etikett"), ' +
+    'size (Größe vom Etikett/Tag falls lesbar, z.B. "S", "M", "L", "48", "M/L"; sonst leerer String), ' +
+    'chest_cm (Achsel zu Achsel / halbe Brustweite in cm als Zahl, NUR wenn auf Fotos/Maßband erkennbar oder sehr sicher ablesbar, sonst null), ' +
+    'length_cm (Gesamtlänge in cm als Zahl, nur wenn erkennbar, sonst null), ' +
+    'shoulder_cm (Schulterbreite in cm als Zahl, nur wenn erkennbar, sonst null), ' +
+    'sleeve_cm (Ärmellänge in cm als Zahl, nur wenn erkennbar, sonst null), ' +
+    'measurements_note (kurz auf Deutsch: woher die Maße kommen, z.B. "Etikett lesbar" / "Maßband im Bild" / "nicht erkennbar"), ' +
     'price_low (geschätzter unterer Wiederverkaufspreis in Euro als Zahl), ' +
-    'price_high (geschätzter oberer Wiederverkaufspreis in Euro als Zahl). Keine erfundenen exakten Details.';
+    'price_high (geschätzter oberer Wiederverkaufspreis in Euro als Zahl). ' +
+    'WICHTIG: Maße und Größe NIEMALS erfinden. Wenn unsicher oder nicht sichtbar: size="", cm-Felder=null. ' +
+    'Keine erfundenen exakten Details.';
 }
 
 function applyPhotoAnalysis(parsed) {
@@ -1438,6 +1583,35 @@ function applyPhotoAnalysis(parsed) {
   if (!condition && parsed.condition && validConditions.includes(parsed.condition)) {
     document.getElementById('f-condition').value = parsed.condition;
   }
+
+  // Größe & Maße – nur leere Felder befüllen, nichts erfinden
+  const filled = [];
+  const size = normalizeSizeTag(parsed.size || parsed.size_tag || parsed.tag_size || '');
+  if (setFieldIfEmpty('f-size', size)) filled.push('Größe ' + size);
+
+  const chest = normalizeMeasureValue(parsed.chest_cm ?? parsed.chest ?? parsed.pit_to_pit ?? '');
+  const length = normalizeMeasureValue(parsed.length_cm ?? parsed.length ?? '');
+  const shoulder = normalizeMeasureValue(parsed.shoulder_cm ?? parsed.shoulder ?? '');
+  const sleeve = normalizeMeasureValue(parsed.sleeve_cm ?? parsed.sleeve ?? '');
+  if (setFieldIfEmpty('f-chest', chest)) filled.push('Achsel ' + chest);
+  if (setFieldIfEmpty('f-length', length)) filled.push('Länge ' + length);
+  if (setFieldIfEmpty('f-shoulder', shoulder)) filled.push('Schulter ' + shoulder);
+  if (setFieldIfEmpty('f-sleeve', sleeve)) filled.push('Ärmel ' + sleeve);
+
+  const mStatus = document.getElementById('measures-ai-status');
+  if (mStatus) {
+    const note = parsed.measurements_note ? String(parsed.measurements_note).trim() : '';
+    if (filled.length) {
+      mStatus.textContent = '✨ KI erkannt: ' + filled.join(' · ') + (note ? ' (' + note + ')' : '');
+      mStatus.style.color = 'var(--success-text)';
+    } else {
+      mStatus.textContent = note
+        ? 'Maße/Größe nicht sicher erkennbar (' + note + '). Bitte manuell eintragen oder Maßband-Foto hinzufügen.'
+        : 'Maße/Größe nicht sicher auf den Fotos erkennbar – Felder leer gelassen.';
+      mStatus.style.color = 'var(--ink-muted)';
+    }
+  }
+
   prices = prices.filter(p => p.source !== 'ai');
   const low = parseFloat(parsed.price_low);
   const high = parseFloat(parsed.price_high);
@@ -1446,7 +1620,7 @@ function applyPhotoAnalysis(parsed) {
   renderPrices();
   calculate();
   renderResearchLinks();
-  return { low, high };
+  return { low, high, filledMeasures: filled };
 }
 
 async function runPhotoAnalysis({ silent = false } = {}) {
@@ -1463,16 +1637,19 @@ async function runPhotoAnalysis({ silent = false } = {}) {
       ? await groqDirectRequest(key, prompt, imgs)
       : await geminiDirectRequest(key, prompt, imgs);
     const parsed = parseGeminiJSON(raw);
-    const { low, high } = applyPhotoAnalysis(parsed);
+    const result = applyPhotoAnalysis(parsed);
+    const { low, high, filledMeasures } = result;
     const providerLabel = provider === 'groq' ? 'Groq' : 'Gemini';
-    const msg = (!isNaN(low) && !isNaN(high))
-      ? ('Erkannt · ' + providerLabel + '-Preisvorschlag: ' + fmtEUR(low) + '–' + fmtEUR(high))
-      : 'Erkannt';
+    const photoN = imgs.length;
+    let msg = 'Erkannt aus ' + photoN + ' Foto' + (photoN === 1 ? '' : 's') + ' · ' + providerLabel;
+    if (!isNaN(low) && !isNaN(high)) msg += ' · Preis ' + fmtEUR(low) + '–' + fmtEUR(high);
+    if (filledMeasures && filledMeasures.length) msg += ' · ' + filledMeasures.join(', ');
+    else msg += ' · Maße/Größe bitte prüfen';
     if (!silent) {
       const statusEl = document.getElementById('analyze-status');
       if (statusEl) statusEl.textContent = msg;
     }
-    return { ok: true, low, high, provider: providerLabel, message: msg };
+    return { ok: true, low, high, provider: providerLabel, message: msg, filledMeasures };
   } catch (err) {
     if (/quota|rate limit|429|billing/i.test(err.message || '')) {
       const fallback = localFallbackEstimate();
@@ -1685,11 +1862,11 @@ function inventoryData(){try{return JSON.parse(localStorage.getItem(INVENTORY_KE
 function saveInventoryData(list){localStorage.setItem(INVENTORY_KEY,JSON.stringify(list))}
 function nextArticleNo(){const year=new Date().getFullYear(),nums=inventoryData().map(x=>parseInt(String(x.articleNo||'').replace(/\D/g,''),10)).filter(Number.isFinite);return year+'-'+String((Math.max(0,...nums)%10000)+1).padStart(4,'0')}
 function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{localStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:currentRecord()}))}catch(e){}},500)}
-function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';if(document.getElementById('f-size'))document.getElementById('f-size').value=r.size||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}if(document.getElementById('generated-description')&&r.description)document.getElementById('generated-description').value=r.description;prices=r.prices||[];pendingImages=r.photos||[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();renderResearchLinks();calculate()}}catch(e){}}
+function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';if(document.getElementById('f-size'))document.getElementById('f-size').value=r.size||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}if(document.getElementById('generated-description')&&r.description)document.getElementById('generated-description').value=r.description;prices=r.prices||[];pendingImages=Array.isArray(r.photos)?r.photos.slice(0, MAX_PHOTOS):[];pendingImage=pendingImages[0]||null;if(document.getElementById('f-chest')&&r.chest)document.getElementById('f-chest').value=r.chest;if(document.getElementById('f-length')&&r.length)document.getElementById('f-length').value=r.length;if(document.getElementById('f-shoulder')&&r.shoulder)document.getElementById('f-shoulder').value=r.shoulder;if(document.getElementById('f-sleeve')&&r.sleeve)document.getElementById('f-sleeve').value=r.sleeve;renderPrices();syncPhotoUi();renderResearchLinks();calculate()}}catch(e){}}
 
-function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),color:(document.getElementById('f-color')?.value||'').trim(),era:(document.getElementById('f-era')?.value||'').trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0,5),title:document.getElementById('generated-title')?.value||'',description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
+function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),color:(document.getElementById('f-color')?.value||'').trim(),era:(document.getElementById('f-era')?.value||'').trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0, MAX_PHOTOS),title:document.getElementById('generated-title')?.value||'',description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
 function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=currentRecord();if(!r.articleNo)r.articleNo=nextArticleNo();document.getElementById('f-article-no').value=r.articleNo;if(!r.name&&!r.brand&&!r.category){document.getElementById('save-status').textContent='Bitte zuerst Artikeldaten eintragen.';return}currentItemId=r.id;const l=inventoryData(),i=l.findIndex(x=>x.id===r.id);if(i>=0)l[i]=r;else l.unshift(r);saveInventoryData(l);localStorage.removeItem('preis-check-draft');if(supabaseClient)syncAllToCloud();document.getElementById('save-status').textContent='Gespeichert.';renderStats()}
-function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos:[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();if(pendingImage){document.getElementById('preview-img').src=pendingImage;document.getElementById('preview-img').style.display='inline-block';document.getElementById('dropzone-hint').style.display='none';document.getElementById('analyze-btn').disabled=false;const allBtn=document.getElementById('all-generate-btn');if(allBtn)allBtn.disabled=false}else{document.getElementById('analyze-btn').disabled=true;const allBtn=document.getElementById('all-generate-btn');if(allBtn)allBtn.disabled=true}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
+function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos.slice(0, MAX_PHOTOS):[];pendingImage=pendingImages[0]||null;renderPrices();syncPhotoUi();const ms=document.getElementById('measures-ai-status');if(ms){ms.textContent='';ms.style.color='';}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
 function deleteItem(id){createAutoBackup('Vor dem Löschen');saveInventoryData(inventoryData().filter(x=>x.id!==id));renderInventory();renderStats()}
 function renderInventory(){const e=document.getElementById('inventory-list'),all=inventoryData(),q=(document.getElementById('inventory-search')?.value||'').toLowerCase(),f=document.getElementById('inventory-filter')?.value||'',sort=document.getElementById('inventory-sort')?.value||'new';let l=all.filter(r=>(!q||[r.name,r.brand,r.category].join(' ').toLowerCase().includes(q))&&(!f||r.status===f));l.sort((a,b)=>sort==='name'?String(a.name||'').localeCompare(String(b.name||'')):sort==='profit'?((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0)):String(b.updated||'').localeCompare(String(a.updated||'')));if(!l.length){e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>';updateStorageInfo(all);return}e.innerHTML=l.map(r=>{const m=median(r.prices||[]),profit=(r.soldPrice||0)-(r.ek||0);const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';return `<div class="inventory-card">${img}<h3>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3><p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p><p>Status: <b>${escapeHtml(r.status||'geplant')}</b>${r.platform?' · '+escapeHtml(r.platform):''}</p><p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}<div class="inventory-actions"><button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button><button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button><button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button><button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button></div></div>`}).join('');updateStorageInfo(all)}
 function duplicateItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;const copy=JSON.parse(JSON.stringify(r));copy.id=Date.now().toString(36);delete copy.cloudId;copy.articleNo=nextArticleNo();copy.name=(copy.name||'Artikel')+' (Kopie)';copy.status='geplant';copy.soldPrice=0;copy.updated=new Date().toISOString();const l=inventoryData();l.unshift(copy);saveInventoryData(l);renderInventory();renderStats()}
@@ -1714,7 +1891,7 @@ function generateInvoice(){saveInvoiceSettings();const id=document.getElementByI
 function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
 function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
 
-function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';const ts=document.getElementById('title-status');if(ts)ts.textContent='';const ds=document.getElementById('desc-status');if(ds)ds.textContent='';const as=document.getElementById('analyze-status');if(as)as.textContent='';updateTitleCharCount();renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block';document.getElementById('analyze-btn').disabled=true;const allBtn=document.getElementById('all-generate-btn');if(allBtn)allBtn.disabled=true;const prog=document.getElementById('all-generate-progress');if(prog)prog.style.display='none'}
+function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';const ts=document.getElementById('title-status');if(ts)ts.textContent='';const ds=document.getElementById('desc-status');if(ds)ds.textContent='';const as=document.getElementById('analyze-status');if(as)as.textContent='';const ms=document.getElementById('measures-ai-status');if(ms){ms.textContent='';ms.style.color='';}updateTitleCharCount();renderPrices();syncPhotoUi();const prog=document.getElementById('all-generate-progress');if(prog)prog.style.display='none'}
 function learnedRange(brand,category,condition){const b=(brand||'').toLowerCase(),c=(category||'').toLowerCase(),co=(condition||'').toLowerCase();const list=loadCorrections().map(x=>{const ib=(x.brand||'').toLowerCase(),ic=(x.category||'').toLowerCase(),io=(x.condition||'').toLowerCase();let score=0;if(b&&ib===b)score+=5;else if(b&&ib.includes(b)||b&&ib&&b.includes(ib))score+=3;if(c&&ic===c)score+=5;else if(c&&ic.includes(c)||c&&ic&&c.includes(ic))score+=3;if(co&&io===co)score+=2;return {x,score}}).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score).slice(0,12);if(!list.length)return null;const weights=list.map(x=>x.score),sum=weights.reduce((a,v)=>a+v,0);return {low:list.reduce((a,v,i)=>a+v.x.low*weights[i],0)/sum,high:list.reduce((a,v,i)=>a+(v.x.high||v.x.low)*weights[i],0)/sum,count:list.length}}
 function renderLearningInsights(){const e=document.getElementById('learning-insights');if(!e)return;const l=loadCorrections(),values=l.flatMap(x=>[Number(x.low)||0,Number(x.high)||Number(x.low)||0]).filter(Boolean),brands=new Set(l.map(x=>x.brand).filter(Boolean)),cats=new Set(l.map(x=>x.category).filter(Boolean));e.innerHTML=`<div class="metric"><span class="muted">Preisreferenzen</span><strong>${l.length}</strong></div><div class="metric"><span class="muted">Marken gelernt</span><strong>${brands.size}</strong></div><div class="metric"><span class="muted">Kategorien gelernt</span><strong>${cats.size}</strong></div><div class="metric"><span class="muted">Durchschnittliche Range-Mitte</span><strong>${values.length?fmtEUR(values.reduce((a,v)=>a+v,0)/values.length):'–'}</strong></div>`}
 function localFallbackEstimate(){const r=learnedRange(document.getElementById('f-brand').value,document.getElementById('f-category').value,document.getElementById('f-condition').value);if(!r)return false;prices=prices.filter(p=>p.source!=='ai');prices.push({value:r.low,source:'ai'},{value:r.high,source:'ai'});renderPrices();calculate();return true}
@@ -1839,6 +2016,7 @@ renderBackups();
 renderStats();
 renderInvoiceItems();
 renderInvoiceHistory();
+syncPhotoUi();
 restoreCloudSession();
 if(!document.getElementById('f-article-no').value)document.getElementById('f-article-no').value=nextArticleNo();
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
@@ -1849,5 +2027,5 @@ if (titleInput) {
 }
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbae21fa057c50',t:'MTc4NDQ4NDU5OA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbb9dfbcc9e0d5',t:'MTc4NDQ4NTA3OA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
