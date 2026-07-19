@@ -186,6 +186,8 @@
   .storage-bar { height:6px;background:#161613;border-radius:5px;overflow:hidden;margin-top:6px; }
   .storage-bar span { display:block;height:100%;background:var(--success); }
   .invoice-history { margin-top:16px;border-top:1px solid #ccc;padding-top:10px; }
+  .legal-text {font-size:12px;line-height:1.6;color:var(--ink-muted);}
+  .legal-text h3 {color:var(--ink);font-size:14px;margin:16px 0 5px;}
 
   .inventory-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:10px; }
   .inventory-card { border:1px solid var(--card-border); border-radius:8px; padding:11px; background:#1b1b18; }
@@ -205,6 +207,7 @@
   <div class="sidebar-title">Preis-Check</div>
   <button class="nav-btn active" data-view="check" onclick="switchView('check',this)">🧮 Preis-Check</button>
   <button class="nav-btn" data-view="cloud" onclick="switchView('cloud',this)">☁️ Cloud-Sync</button>
+  <button class="nav-btn" data-view="privacy" onclick="switchView('privacy',this)">🔒 Datenschutz</button>
   <button class="nav-btn" data-view="inventory" onclick="switchView('inventory',this)">📦 Inventar</button>
   <button class="nav-btn" data-view="invoices" onclick="switchView('invoices',this)">🧾 Rechnungen</button>
   <button class="nav-btn" data-view="library" onclick="switchView('library',this)">📚 Marken &amp; Artikel</button>
@@ -396,6 +399,13 @@
     </div>
   </div>
 
+</div>
+
+<!-- Datenschutz / öffentliche Hinweise -->
+<div id="privacy-view" class="view hidden">
+  <div class="top-row"><h1>Datenschutz &amp; Rechtliches</h1></div><hr class="divider" />
+  <div class="panel"><div class="legal-text"><h3>Verantwortlicher</h3><p id="legal-owner">Bitte hier deinen Namen/Firma und Kontaktadresse ergänzen.</p><h3>Cloud-Speicherung</h3><p>Inventar, Bilder, Preisreferenzen und Rechnungen können nach Anmeldung in Supabase gespeichert werden. Die Daten werden dem angemeldeten Benutzerkonto zugeordnet. Andere Benutzer können diese Daten nicht sehen.</p><h3>KI-Verarbeitung</h3><p>Wenn du die KI-Funktionen verwendest, werden deine Eingaben und ausgewählte Artikelbilder an den gewählten KI-Anbieter über eine geschützte Serverfunktion übertragen. Nutze keine unnötigen personenbezogenen Daten in Bildern oder Beschreibungen.</p><h3>Lokale Speicherung</h3><p>Ohne Cloud-Synchronisierung können Daten und API-Einstellungen lokal im Browser gespeichert werden. Browserdaten können jederzeit über „Alles gespeicherte löschen“ entfernt werden.</p><h3>Deine Rechte</h3><p>Du kannst deine Cloud-Daten löschen lassen oder dein Konto entfernen. Für einen öffentlichen Betrieb solltest du diese Hinweise mit einer rechtlichen Beratung prüfen und ein Impressum ergänzen.</p></div></div>
+  <div class="panel"><h2>Meine Daten löschen</h2><p style="font-size:12px;color:var(--ink-muted);">Löscht lokale Daten und – wenn du angemeldet bist – deine Inventar-, Preisreferenz- und Rechnungsdaten aus Supabase. Die Kontolöschung selbst muss aktuell im Supabase-Dashboard erfolgen.</p><button class="danger-btn" onclick="deleteMyCloudData()">🗑️ Meine Cloud-Daten löschen</button><span id="privacy-status" class="analyze-status" style="margin-left:8px;"></span></div>
 </div>
 
 <!-- Cloud-Sync / Benutzerkonto -->
@@ -930,8 +940,9 @@ async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudM
 
 async function restoreCloudSession(){if(supabaseClient){await updateCloudStatus();supabaseClient.auth.onAuthStateChange(()=>updateCloudStatus())}}
 
+async function deleteMyCloudData(){if(!confirm('Lokale Daten und deine Cloud-Daten löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const u=await currentCloudUser();try{localStorage.clear();if(u&&supabaseClient){await supabaseClient.from('inventory').delete().eq('user_id',u.id);await supabaseClient.from('price_references').delete().eq('user_id',u.id);await supabaseClient.from('invoices').delete().eq('user_id',u.id)}document.getElementById('privacy-status').textContent='Daten gelöscht. Die Seite wird neu geladen.';setTimeout(()=>location.reload(),700)}catch(e){document.getElementById('privacy-status').textContent='Fehler: '+e.message}}
 function switchView(view, button) {
-  ['check','cloud','inventory','invoices','library','stats'].forEach(v => document.getElementById(v + '-view').classList.toggle('hidden', v !== view));
+  ['check','cloud','privacy','inventory','invoices','library','stats'].forEach(v => document.getElementById(v + '-view').classList.toggle('hidden', v !== view));
   document.querySelectorAll('.nav-btn[data-view]').forEach(b => b.classList.remove('active'));
   if (button) button.classList.add('active');
   if (view === 'inventory') renderInventory();
@@ -1095,5 +1106,5 @@ loadDraft();
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1da1c8b2a089285',t:'MTc4NDQ2ODE0OA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1da293a2f20e2c8',t:'MTc4NDQ2ODY2OA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
