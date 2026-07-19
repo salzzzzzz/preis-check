@@ -509,8 +509,12 @@
       Keys werden nur lokal gespeichert. Die KI-Funktionen funktionieren auch lokal (ohne Key) mit Fallback-Beschreibungen.
     </p>
     <label class="field-label" style="margin-top:8px;">KI-Anbieter</label>
-    <select id="provider-input" onchange="toggleProviderKey()"><option value="groq">Groq · Llama 4 Scout (empfohlen)</option><option value="gemini">Gemini</option></select>
+    <select id="provider-input" onchange="toggleProviderKey()"><option value="groq">Groq (empfohlen)</option><option value="gemini">Gemini</option></select>
+    
+    <label class="field-label" style="margin-top:12px;">Modell</label>
+    <select id="model-input"></select>
     <div id="provider-hint" style="font-size:11px;color:var(--ink-muted);margin:2px 0 6px;"></div>
+    
     <input id="api-key-input" placeholder="Gemini API-Key: AIzaSy..." style="margin-top:8px; display:none;" />
     <input id="groq-key-input" placeholder="Groq API-Key (optional für Proxy): gsk_..." style="margin-top:8px;" />
     <div style="margin-top:8px;">
@@ -532,6 +536,22 @@ const supabaseClient = window.supabase ? window.supabase.createClient(SUPABASE_U
 const APIKEY_KEY = 'inventar-tracker-gemini-apikey';
 const GROQKEY_KEY = 'preis-check-groq-apikey';
 const PROVIDER_KEY = 'preis-check-provider';
+const MODEL_KEY = 'preis-check-ai-model';
+
+const AI_MODELS = {
+  groq: [
+    { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (empfohlen)' },
+    { id: 'llama-3.1-70b-versatile', label: 'Llama 3.1 70B' },
+    { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (schnell)' },
+    { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
+    { id: 'gemma2-9b-it', label: 'Gemma 2 9B' }
+  ],
+  gemini: [
+    { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+    { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro' },
+    { id: 'gemini-2.0-flash', label: 'Gemini 2.0 Flash (neu)' }
+  ]
+};
 const CORRECTIONS_KEY = 'preis-check-corrections';
 const STYLE_KEY = 'preis-check-style-template';
 const INVENTORY_KEY = 'preis-check-inventory';
@@ -617,7 +637,16 @@ function generateLocalDescription() {
 
 async function groqRequest(key, prompt, images=[], kind='photo') {
   if (!supabaseClient) throw new Error('Supabase ist nicht geladen.');
-  const { data, error } = await supabaseClient.functions.invoke('ai-proxy', { body: { provider: 'groq', prompt, images, kind } });
+  const model = getSelectedModel();
+  const { data, error } = await supabaseClient.functions.invoke('ai-proxy', { 
+    body: { 
+      provider: 'groq', 
+      model: model,
+      prompt, 
+      images, 
+      kind 
+    } 
+  });
   if (error) throw new Error(error.message || 'AI-Proxy-Fehler');
   if (data?.error) throw new Error(data.error);
   return data?.text || '';
@@ -630,7 +659,14 @@ async function generateDescriptionGroq(key){
 }
 async function analyzeImageGroq(key){const status=document.getElementById('analyze-status');status.textContent='Analysiere Bild mit Groq…';const condition=document.getElementById('f-condition').value,defects=document.getElementById('f-defects').value.trim();const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. '+(condition?'Zustand: '+condition+'.':'')+(defects?' Mängel: '+defects+'.':'')+' Antworte ausschließlich als JSON mit name, brand, category, condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const raw=await groqRequest(key,prompt,pendingImages,'photo');const parsed=parseGeminiJSON(raw);if(parsed.name)document.getElementById('f-name').value=parsed.name;if(parsed.brand)document.getElementById('f-brand').value=parsed.brand;if(parsed.category)document.getElementById('f-category').value=parsed.category;if(!condition&&parsed.condition)document.getElementById('f-condition').value=parsed.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(parsed.price_low),high=Number(parsed.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();status.textContent=`Erkannt · Groq-Preisvorschlag: ${fmtEUR(low)}–${fmtEUR(high)}`}
 
-async function secureGeminiRequest(prompt, images=[], kind='photo'){if(!supabaseClient)throw new Error('Supabase ist nicht geladen.');const {data,error}=await supabaseClient.functions.invoke('ai-proxy',{body:{provider:'gemini',prompt,images,kind}});if(error)throw new Error(error.message||'AI-Proxy-Fehler');if(data?.error)throw new Error(data.error);return data?.text||''}
+async function secureGeminiRequest(prompt, images=[], kind='photo'){
+  if(!supabaseClient) throw new Error('Supabase ist nicht geladen.');
+  const model = getSelectedModel();
+  const {data,error}=await supabaseClient.functions.invoke('ai-proxy',{body:{provider:'gemini', model, prompt,images,kind}});
+  if(error) throw new Error(error.message||'AI-Proxy-Fehler');
+  if(data?.error) throw new Error(data.error);
+  return data?.text||'';
+}
 async function generateDescriptionSecureGemini(){
  const st=document.getElementById('desc-status'),b=document.getElementById('desc-btn');st.textContent='Generiere Beschreibung…';b.disabled=true;
  try{const item=[document.getElementById('f-name').value.trim(),document.getElementById('f-brand').value.trim(),document.getElementById('f-category').value.trim()].filter(Boolean).join(', ');const prompt='Erstelle eine deutsche Vinted-Verkaufsbeschreibung für '+item+'. Verwende die Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. Zustand: '+(document.getElementById('f-condition').value||'nicht angegeben')+'. Mängel: '+(document.getElementById('f-defects').value.trim()||'keine angegeben')+'. Größe: '+(document.getElementById('f-size').value.trim()||'nicht angegeben')+'. Maße nur verwenden, wenn vorhanden. Erfinde keine Fakten. Antworte ausschließlich als JSON mit description und extra_hashtags (20 bis 30 passende Hashtags ohne #).';const raw=await secureGeminiRequest(prompt,pendingImages,'description');const o=parseGeminiJSON(raw),tags=[...FIXED_DESCRIPTION_TAGS,...(o.extra_hashtags||[]).map(x=>String(x).toLowerCase().replace(/[^a-z0-9äöüß]/g,'')).filter(x=>x&&!FIXED_DESCRIPTION_TAGS.includes(x))];document.getElementById('generated-description').value=normalizeGeneratedDescription(o.description||'')+'\n\n'+tags.map(t=>'#'+t).join(' ');st.textContent='Fertig mit Gemini (geschützt).'}catch(e){document.getElementById('generated-description').value=generateLocalDescription();st.textContent='Proxy-Fehler · lokale Beschreibung erstellt.'}finally{b.disabled=false}}
@@ -668,8 +704,9 @@ async function generateDescription() {
 
   descStatus.textContent = 'Generiere Beschreibung…';
   descBtn.disabled = true;
+  const selectedModel = getSelectedModel();
   try {
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key);
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + selectedModel + ':generateContent?key=' + encodeURIComponent(key);
     const itemLine = [name, brand, category, condition ? ('Zustand: ' + condition) : ''].filter(Boolean).join(', ');
     const res = await fetch(url, {
       method: 'POST',
@@ -805,20 +842,46 @@ function relevantCorrections(brand, category) {
 function resetAllData(){createAutoBackup('Vor dem Zurücksetzen');if(!confirm('Wirklich alle gespeicherten Daten löschen? Dazu gehören Inventar, Bilder, Preiswissen, Rechnungen, API-Keys und Entwürfe. Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;localStorage.clear();alert('Alle gespeicherten Daten wurden gelöscht.');location.reload()}
 function getProvider(){return localStorage.getItem(PROVIDER_KEY)||'groq'}
 function getApiKey(){return getProvider()==='groq'?(localStorage.getItem(GROQKEY_KEY)||''):(localStorage.getItem(APIKEY_KEY)||'')}
+function getModel(){
+  const saved = localStorage.getItem(MODEL_KEY);
+  if (saved) return saved;
+  // sensible default
+  return getProvider()==='groq' ? 'llama-3.3-70b-versatile' : 'gemini-1.5-flash';
+}
+function getSelectedModel(){ return localStorage.getItem(MODEL_KEY) || getModel(); }
 function toggleProviderKey(){
-  const sel = document.getElementById('provider-input').value;
-  const isGroq = sel === 'groq';
+  const provider = document.getElementById('provider-input').value;
+  const isGroq = provider === 'groq';
   const geminiInput = document.getElementById('api-key-input');
   const groqInput = document.getElementById('groq-key-input');
   geminiInput.style.display = isGroq ? 'none' : 'block';
   groqInput.style.display = isGroq ? 'block' : 'none';
-  // optional hint for Groq
+
   const hint = document.getElementById('provider-hint');
   if (hint) {
     hint.innerHTML = isGroq 
-      ? 'Groq: Meist kein Key nötig (wird über Supabase-Proxy gehandhabt).'
-      : 'Gemini: Direkt-Key erforderlich (kann derzeit Quota-Probleme haben).';
+      ? 'Groq: Meist kein Key nötig (Proxy). Modelle: Llama 3.3/3.1, Mixtral, Gemma.'
+      : 'Gemini: Direkt-Key. Modelle: Flash / Pro / 2.0.';
   }
+
+  // populate model dropdown
+  updateModelSelect(provider);
+}
+
+function updateModelSelect(provider) {
+  const modelSelect = document.getElementById('model-input');
+  if (!modelSelect) return;
+  modelSelect.innerHTML = '';
+  const models = AI_MODELS[provider] || AI_MODELS.groq;
+  const currentModel = getModel();
+
+  models.forEach(m => {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.textContent = m.label;
+    if (m.id === currentModel) opt.selected = true;
+    modelSelect.appendChild(opt);
+  });
 }
 function openSettings(){
   const p = getProvider();
@@ -829,29 +892,46 @@ function openSettings(){
   document.getElementById('settings-overlay').classList.add('open');
 }
 function closeSettings(){document.getElementById('settings-overlay').classList.remove('open')}
-function saveApiKey(){localStorage.setItem(PROVIDER_KEY,document.getElementById('provider-input').value);localStorage.setItem(APIKEY_KEY,document.getElementById('api-key-input').value.trim());localStorage.setItem(GROQKEY_KEY,document.getElementById('groq-key-input').value.trim());closeSettings()}
+function saveApiKey(){
+  const prov = document.getElementById('provider-input').value;
+  localStorage.setItem(PROVIDER_KEY, prov);
+  localStorage.setItem(APIKEY_KEY, document.getElementById('api-key-input').value.trim());
+  localStorage.setItem(GROQKEY_KEY, document.getElementById('groq-key-input').value.trim());
+  
+  const modelSel = document.getElementById('model-input');
+  if (modelSel) {
+    localStorage.setItem(MODEL_KEY, modelSel.value);
+  }
+  closeSettings();
+}
 async function testAIConnection() {
   const provider = document.getElementById('provider-input').value;
+  const modelSelect = document.getElementById('model-input');
+  const model = (modelSelect && modelSelect.value) ? modelSelect.value : getSelectedModel();
   const key = provider === 'groq' ? document.getElementById('groq-key-input').value.trim() : document.getElementById('api-key-input').value.trim();
-  const statusEl = document.createElement('span');
-  statusEl.style.marginLeft = '10px';
-  statusEl.style.fontSize = '12px';
-  const btn = event.currentTarget || null;
   try {
     if (!supabaseClient) throw new Error('Supabase nicht verfügbar');
     if (provider === 'groq') {
-      const res = await supabaseClient.functions.invoke('ai-proxy', { body: { provider: 'groq', prompt: 'Sag nur "OK"', kind: 'description' } });
+      const res = await supabaseClient.functions.invoke('ai-proxy', { 
+        body: { 
+          provider: 'groq', 
+          model: model,
+          prompt: 'Sag nur "OK"', 
+          kind: 'description' 
+        } 
+      });
       if (res.error || res.data?.error) throw new Error(res.error?.message || res.data?.error);
-      alert('✅ Groq-Verbindung erfolgreich (Proxy).');
+      alert(`✅ Groq-Verbindung erfolgreich (Proxy). Modell: ${model}`);
     } else {
       if (!key) throw new Error('Kein Gemini-Key eingegeben.');
-      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key), {
+      const urlModel = model || 'gemini-1.5-flash';
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(urlModel) + ':generateContent?key=' + encodeURIComponent(key), {
         method: 'POST',
         headers: {'content-type':'application/json'},
         body: JSON.stringify({ contents: [{ parts: [{ text: 'Sag nur "OK".' }] }] })
       });
       if (!res.ok) throw new Error('HTTP ' + res.status);
-      alert('✅ Gemini-Verbindung OK (direkt).');
+      alert(`✅ Gemini-Verbindung OK (direkt). Modell: ${urlModel}`);
     }
   } catch(e) {
     alert('❌ Verbindungstest fehlgeschlagen: ' + e.message + '\n\nTipp: Für Groq den Proxy verwenden (kein direkter Key nötig, wenn der Proxy-Key im Supabase hinterlegt ist).');
@@ -956,7 +1036,8 @@ async function analyzeImage() {
           return `"${label}" (Zustand: ${r.condition || 'unbekannt'}) = ${range}`;
         }).join('; ') + '.'
       : '';
-    const url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key);
+    const selectedModel = getSelectedModel();
+    const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + selectedModel + ':generateContent?key=' + encodeURIComponent(key);
     const res = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
@@ -1494,5 +1575,5 @@ if(!document.getElementById('f-article-no').value || document.getElementById('f-
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db18707a3a3057',t:'MTc4NDQ3ODQ2Ng=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
