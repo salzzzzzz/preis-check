@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Preis-Check · Build 2026.07.19e</title>
+<title>Preis-Check · Build 2026.07.19f</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
 
@@ -358,12 +358,20 @@
     .print-area { display:block !important; position:absolute; left:0; top:0; width:100%; }
   }
 
+
+  .artno-input {
+    width:100%; max-width:140px; background:#161613; border:1px solid var(--card-border);
+    border-radius:6px; padding:6px 8px; color:var(--ink); font-size:12px;
+    font-family:'IBM Plex Mono',monospace; margin:4px 0 6px;
+  }
+  .artno-row { display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin:4px 0 6px; }
+  .artno-row button { min-height:34px; padding:6px 8px; font-size:11px; }
 </style>
 </head>
 <body>
 <div class="sidebar">
   <div class="sidebar-title">Preis-Check</div>
-  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19e</div>
+  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19f</div>
   <button class="nav-btn active" data-view="check" onclick="switchView('check',this)">🧮 Preis-Check</button>
   <button class="nav-btn" data-view="quick" onclick="switchView('quick',this)">⚡ Schnellcheck</button>
   <button class="nav-btn" data-view="cloud" onclick="switchView('cloud',this)">☁️ Cloud-Sync</button>
@@ -402,17 +410,24 @@
 
   <div class="panel" id="step-panel-1" data-step-panel="1">
     <h2>1 · Artikel erkennen</h2>
-    <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input').click()">
+    <div class="dropzone" id="dropzone" onclick="document.getElementById('file-input-gallery').click()">
       <img id="preview-img" style="display:none;" />
-      <div class="hint" id="dropzone-hint">Mehrere Fotos hierher ziehen oder klicken (Etikett, Vorderseite, Maße-Fotos)</div>
-      <input type="file" id="file-input" accept="image/*" capture="environment" multiple onchange="handleFiles(this.files, false)" />
+      <div class="hint" id="dropzone-hint">Galerie öffnen oder Fotos hierher ziehen (Etikett, Vorderseite, Maße)</div>
+      <!-- WICHTIG: ohne capture = Galerie auf dem Handy wählbar -->
+      <input type="file" id="file-input" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files, false)" />
+      <input type="file" id="file-input-gallery" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files, false)" />
+      <input type="file" id="file-input-camera" accept="image/*" capture="environment" style="display:none" onchange="handleFiles(this.files, true)" />
     </div>
     <div class="photo-actions">
-      <button class="ghost" type="button" onclick="event.stopPropagation(); document.getElementById('file-input-add').click()">＋ Weitere Fotos</button>
+      <button class="primary" type="button" onclick="event.stopPropagation(); document.getElementById('file-input-gallery').click()">🖼️ Galerie</button>
+      <button class="ghost" type="button" onclick="event.stopPropagation(); document.getElementById('file-input-camera').click()">📷 Kamera</button>
+      <button class="ghost" type="button" onclick="event.stopPropagation(); document.getElementById('file-input-add').click()">＋ Weitere (Galerie)</button>
       <button class="ghost" type="button" onclick="clearAllPhotos()">Alle Fotos löschen</button>
       <span class="analyze-status" id="photo-count-status">0/8 Fotos</span>
       <input type="file" id="file-input-add" accept="image/*" multiple style="display:none" onchange="handleFiles(this.files, true)" />
+      <input type="file" id="file-input-add-camera" accept="image/*" capture="environment" style="display:none" onchange="handleFiles(this.files, true)" />
     </div>
+    <div style="font-size:11px;color:var(--ink-muted);margin-top:6px;">Handy: <b style="color:var(--ink);">Galerie</b> wählt aus Fotos, <b style="color:var(--ink);">Kamera</b> macht ein neues Bild.</div>
     <div id="photo-strip" class="photo-strip"></div>
     <div class="analyze-row" style="flex-wrap:wrap;margin-top:10px;">
       <button class="primary" id="all-generate-btn" onclick="generateAllListing()" disabled title="Fotos analysieren + Titel + Beschreibung">⚡ Alles generieren</button>
@@ -540,7 +555,7 @@
         <label class="field-label">Verkaufspreis (optional, €)</label>
         <input id="f-sold-price" type="number" step="0.01" min="0" placeholder="z.B. 59.00" />
       </div>
-      <div><label class="field-label">Artikelnummer</label><input id="f-article-no" placeholder="wird automatisch vergeben" readonly /></div>
+      <div><label class="field-label">Artikelnummer</label><input id="f-article-no" placeholder="z.B. 2026-0007 (editierbar)" /></div>
       <div><label class="field-label">Status</label><select id="f-status"><option value="geplant">Geplant</option><option value="eingestellt">Eingestellt</option><option value="verkauft">Verkauft</option><option value="nicht verkauft">Nicht verkauft</option><option value="archiviert">Archiviert</option></select></div>
       <div><label class="field-label">Verkaufsplattform</label><select id="f-platform"><option value="">–</option><option>Vinted</option><option>eBay</option><option>Kleinanzeigen</option><option>Sonstiges</option></select></div>
     </div>
@@ -741,6 +756,8 @@
       </select>
       <select id="inventory-sort" onchange="renderInventory()">
         <option value="new">Neueste zuerst</option>
+        <option value="articleNo">Artikelnummer A–Z</option>
+        <option value="articleNoDesc">Artikelnummer Z–A</option>
         <option value="profit">Gewinn absteigend</option>
         <option value="name">Name A–Z</option>
         <option value="age">Älteste zuerst</option>
@@ -799,10 +816,16 @@
   <div class="warn-box"><b>Unterwegs-Modus:</b> Kein Titel/Beschreibung. Nur Kaufentscheidung anhand Marktpreis und Zielmarge.</div>
   <div class="panel">
     <h2>Foto</h2>
-    <div class="dropzone" id="quick-dropzone" onclick="document.getElementById('quick-file').click()">
+    <div class="dropzone" id="quick-dropzone" onclick="document.getElementById('quick-file-gallery').click()">
       <img id="quick-preview" style="display:none;max-height:160px;border-radius:8px;" />
-      <div class="hint" id="quick-hint">Foto tippen / wählen</div>
-      <input type="file" id="quick-file" accept="image/*" capture="environment" style="display:none" onchange="handleQuickFile(this.files[0])" />
+      <div class="hint" id="quick-hint">Galerie tippen oder Kamera nutzen</div>
+      <input type="file" id="quick-file" accept="image/*" style="display:none" onchange="handleQuickFile(this.files[0])" />
+      <input type="file" id="quick-file-gallery" accept="image/*" style="display:none" onchange="handleQuickFile(this.files[0])" />
+      <input type="file" id="quick-file-camera" accept="image/*" capture="environment" style="display:none" onchange="handleQuickFile(this.files[0])" />
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px;">
+      <button class="ghost" type="button" onclick="document.getElementById('quick-file-gallery').click()">🖼️ Galerie</button>
+      <button class="ghost" type="button" onclick="document.getElementById('quick-file-camera').click()">📷 Kamera</button>
     </div>
     <div class="grid-fields" style="margin-top:10px;">
       <div><label class="field-label">Ziel-Marge %</label><input id="quick-margin" type="number" min="0" max="200" step="5" value="50" oninput="calcQuick()" /></div>
@@ -921,7 +944,7 @@ const CORRECTIONS_KEY = 'preis-check-corrections';
 const STYLE_KEY = 'preis-check-style-template';
 const INVENTORY_KEY = 'preis-check-inventory';
 const BACKUPS_KEY = 'preis-check-backups';
-const APP_BUILD = '2026.07.19e';
+const APP_BUILD = '2026.07.19f';
 const RECENT_KEY = 'preis-check-recent';
 const LEARN_KEY = 'preis-check-name-learn';
 const TITLE_LANG_KEY = 'preis-check-title-lang';
@@ -1885,10 +1908,9 @@ function handleFiles(files, append = false) {
   const room = Math.max(0, MAX_PHOTOS - pendingImages.length);
   list.slice(0, room).forEach(f => handleFile(f, true));
   // reset inputs so same files can be chosen again
-  const a = document.getElementById('file-input');
-  const b = document.getElementById('file-input-add');
-  if (a) a.value = '';
-  if (b) b.value = '';
+  ['file-input','file-input-gallery','file-input-camera','file-input-add','file-input-add-camera'].forEach(id=>{
+    const el=document.getElementById(id); if(el) el.value='';
+  });
   if (list.length > room) {
     const st = document.getElementById('analyze-status');
     if (st) st.textContent = 'Maximal ' + MAX_PHOTOS + ' Fotos. ' + room + ' hinzugefügt, Rest übersprungen.';
@@ -4989,8 +5011,214 @@ try{
   }
 }catch(e){}
 
+
+/* ===== Galerie + Artikelnummern sortieren/neu vergeben ===== */
+function parseArticleSortKey(no){
+  const s=String(no||'');
+  // 2026-0007 -> [2026,7]
+  const m=s.match(/(\d{4})\D+(\d+)/);
+  if(m) return [parseInt(m[1],10), parseInt(m[2],10), s.toLowerCase()];
+  const n=parseInt(s.replace(/\D/g,''),10);
+  if(Number.isFinite(n)) return [0,n,s.toLowerCase()];
+  return [9999,999999,s.toLowerCase()];
+}
+function cmpArticleNo(a,b){
+  const ka=parseArticleSortKey(a), kb=parseArticleSortKey(b);
+  if(ka[0]!==kb[0]) return ka[0]-kb[0];
+  if(ka[1]!==kb[1]) return ka[1]-kb[1];
+  return String(ka[2]).localeCompare(String(kb[2]));
+}
+function saveArticleNoFromCard(id, value){
+  const v=String(value||'').trim();
+  if(!v){ showToast('Artikelnummer leer'); renderInventory(); return; }
+  const l=inventoryData();
+  const clash=l.find(x=>x.id!==id && String(x.articleNo||'')===v);
+  if(clash && !confirm('Nummer '+v+' existiert schon ('+(clash.name||clash.brand||clash.id)+'). Trotzdem setzen?')){
+    renderInventory(); return;
+  }
+  const r=l.find(x=>x.id===id); if(!r) return;
+  r.articleNo=v; r.updated=new Date().toISOString();
+  saveInventoryData(l);
+  if(currentItemId===id){
+    const el=document.getElementById('f-article-no'); if(el) el.value=v;
+  }
+  renderInventory(); showToast('Nr. gespeichert: '+v);
+}
+function openInPriceCheck(id){
+  // loadItem wechselt bereits in den Preis-Check
+  if(typeof loadItem==='function') loadItem(id);
+  showToast('Im Preis-Check geöffnet');
+  // smooth scroll top of check
+  setTimeout(()=>{
+    const t=document.getElementById('step-panel-1')||document.getElementById('check-view');
+    if(t) t.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 50);
+}
+function getInventoryVisibleList(){
+  // mirror filters from enhanced renderInventory if present
+  const all=inventoryData();
+  const q=(document.getElementById('inventory-search')?.value||'').toLowerCase();
+  const f=document.getElementById('inventory-filter')?.value||'';
+  const extra=document.getElementById('inventory-extra-filter')?.value||'';
+  const sort=document.getElementById('inventory-sort')?.value||'new';
+  let l=all.filter(r=>{
+    const textOk=!q||[r.name,r.brand,r.category,r.articleNo,r.color,r.notes].join(' ').toLowerCase().includes(q);
+    const stOk=!f||r.status===f;
+    if(!textOk||!stOk) return false;
+    const age=typeof itemAgeDays==='function'?itemAgeDays(r):null;
+    if(extra==='no-price') return !(Array.isArray(r.prices)&&r.prices.length);
+    if(extra==='no-photos') return !(Array.isArray(r.photos)&&r.photos.length);
+    if(extra==='no-ek') return !(Number(r.ek)>0);
+    if(extra==='dead') return !['verkauft','archiviert','nicht verkauft'].includes(r.status||'geplant') && age!=null && age>=30;
+    if(extra==='listed') return (r.status||'')==='eingestellt';
+    return true;
+  });
+  l.sort((a,b)=>{
+    if(sort==='name') return String(a.name||'').localeCompare(String(b.name||''));
+    if(sort==='profit') return ((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0));
+    if(sort==='age') return String(a.updated||'').localeCompare(String(b.updated||''));
+    if(sort==='articleNo') return cmpArticleNo(a.articleNo,b.articleNo);
+    if(sort==='articleNoDesc') return cmpArticleNo(b.articleNo,a.articleNo);
+    return String(b.updated||'').localeCompare(String(a.updated||''));
+  });
+  return l;
+}
+function renumberArticleNos(all=false){
+  const year=new Date().getFullYear();
+  const list=all? inventoryData().slice().sort((a,b)=>cmpArticleNo(a.articleNo,b.articleNo)) : getInventoryVisibleList();
+  if(!list.length){ alert('Keine Artikel zum Nummerieren.'); return; }
+  const startStr=prompt((all?'ALLE':'Sichtbare')+' Artikel neu nummerieren.\nStartnummer (z.B. 1 oder 2026-0001):', year+'-0001');
+  if(startStr==null) return;
+  let prefix=year+'-';
+  let start=1;
+  const m=String(startStr).trim().match(/^(.*?)(\d+)$/);
+  if(m){ prefix=m[1]; start=parseInt(m[2],10)||1; }
+  else { start=parseInt(String(startStr).replace(/\D/g,''),10)||1; prefix=year+'-'; }
+  const width=Math.max(4, String(start+list.length).length);
+  if(!confirm((all?'Alle':'Sichtbare')+` ${list.length} Artikel ab ${prefix}${String(start).padStart(width,'0')} neu nummerieren?`)) return;
+  createAutoBackup('Vor Neu-Nummerierung');
+  const map=new Map(list.map((r,i)=>[r.id, prefix+String(start+i).padStart(width,'0')]));
+  const data=inventoryData().map(r=>{
+    if(!map.has(r.id)) return r;
+    return {...r, articleNo: map.get(r.id), updated:new Date().toISOString()};
+  });
+  saveInventoryData(data);
+  // sync open item
+  if(currentItemId && map.has(currentItemId)){
+    const el=document.getElementById('f-article-no'); if(el) el.value=map.get(currentItemId);
+  }
+  renderInventory(); renderStats();
+  showToast(list.length+' Nummern neu vergeben');
+  alert('Fertig. Sortierung „Artikelnummer A–Z“ wählen, um die neue Reihenfolge zu sehen.\nZum Fortsetzen: Artikel öffnen → Preis-Check.');
+}
+
+// Enhance inventory card rendering: inject article no editor + continue button
+// Patch both possible renderInventory implementations by wrapping again at end
+(function patchInventoryForArticleNos(){
+  const prev = renderInventory;
+  renderInventory = function(){
+    // ensure sort supports article numbers inside previous enhanced renderer if it exists
+    const sortEl=document.getElementById('inventory-sort');
+    // call previous
+    prev();
+    // After render, if cards don't have artno inputs, rebuild lightly via DOM enhance
+    const e=document.getElementById('inventory-list'); if(!e) return;
+    // If previous renderer already full HTML, re-render ourselves for consistency when sort is articleNo
+    // Full custom render if we detect missing artno-input
+    if(!e.querySelector('.artno-input')){
+      const all=inventoryData();
+      const q=(document.getElementById('inventory-search')?.value||'').toLowerCase();
+      const f=document.getElementById('inventory-filter')?.value||'';
+      const extra=document.getElementById('inventory-extra-filter')?.value||'';
+      const sort=document.getElementById('inventory-sort')?.value||'new';
+      let l=all.filter(r=>{
+        const textOk=!q||[r.name,r.brand,r.category,r.articleNo,r.color,r.notes].join(' ').toLowerCase().includes(q);
+        const stOk=!f||r.status===f;
+        if(!textOk||!stOk) return false;
+        const age=typeof itemAgeDays==='function'?itemAgeDays(r):null;
+        if(extra==='no-price') return !(Array.isArray(r.prices)&&r.prices.length);
+        if(extra==='no-photos') return !(Array.isArray(r.photos)&&r.photos.length);
+        if(extra==='no-ek') return !(Number(r.ek)>0);
+        if(extra==='dead') return !['verkauft','archiviert','nicht verkauft'].includes(r.status||'geplant') && age!=null && age>=30;
+        if(extra==='listed') return (r.status||'')==='eingestellt';
+        return true;
+      });
+      l.sort((a,b)=>{
+        if(sort==='name') return String(a.name||'').localeCompare(String(b.name||''));
+        if(sort==='profit') return ((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0));
+        if(sort==='age') return String(a.updated||'').localeCompare(String(b.updated||''));
+        if(sort==='articleNo') return cmpArticleNo(a.articleNo,b.articleNo);
+        if(sort==='articleNoDesc') return cmpArticleNo(b.articleNo,a.articleNo);
+        return String(b.updated||'').localeCompare(String(a.updated||''));
+      });
+      if(!l.length){ e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>'; updateStorageInfo(all); if(typeof syncBulkBar==='function') syncBulkBar(); return; }
+      e.innerHTML=l.map(r=>{
+        const m=median(r.prices||[]); const profit=(r.soldPrice||0)-(r.ek||0);
+        const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;
+        const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';
+        const st=r.status||'geplant';
+        const age=typeof itemAgeDays==='function'?itemAgeDays(r):null;
+        const checked=(window._invSelected&&window._invSelected.has(r.id))?'checked':'';
+        const badges=[];
+        if(!(r.prices||[]).length) badges.push('ohne Preis');
+        if(!(r.photos||[]).length) badges.push('ohne Foto');
+        if(!(Number(r.ek)>0)) badges.push('ohne EK');
+        if(age!=null && age>=30 && !['verkauft','archiviert'].includes(st)) badges.push(age+'T');
+        return `<div class="inventory-card">
+          <input type="checkbox" class="inv-check" data-id="${r.id}" ${checked} onchange="toggleInvSelect('${r.id}', this.checked)">
+          ${img}
+          <div class="artno-row">
+            <input class="artno-input" value="${escapeHtml(r.articleNo||'')}" placeholder="Art.-Nr."
+              onchange="saveArticleNoFromCard('${r.id}', this.value)"
+              onclick="event.stopPropagation()" />
+            <button type="button" class="ghost" onclick="event.stopPropagation();openInPriceCheck('${r.id}')">➡️ Preis-Check</button>
+          </div>
+          <h3>${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3>
+          <p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p>
+          <p>Status: <b>${escapeHtml(st)}</b>${r.platform?' · '+escapeHtml(r.platform):''}${age!=null?' · '+age+'T':''}</p>
+          ${badges.length?`<p style="color:var(--gold);font-size:11px">${badges.join(' · ')}</p>`:''}
+          <p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>
+          ${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}
+          <div class="status-quick">
+            <button type="button" class="${statusChipClass(st,'eingestellt')}" onclick="quickSetStatus('${r.id}','eingestellt')">Eingestellt</button>
+            <button type="button" class="${statusChipClass(st,'verkauft')}" onclick="quickSetStatus('${r.id}','verkauft')">Verkauft</button>
+            <button type="button" class="${statusChipClass(st,'archiviert')}" onclick="quickSetStatus('${r.id}','archiviert')">Archiv</button>
+            <button type="button" class="${statusChipClass(st,'geplant')}" onclick="quickSetStatus('${r.id}','geplant')">Geplant</button>
+          </div>
+          <div class="inventory-actions">
+            <button class="primary" onclick="openInPriceCheck('${r.id}')">Öffnen / fortsetzen</button>
+            <button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button>
+            <button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button>
+            <button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button>
+          </div>
+        </div>`;
+      }).join('');
+      updateStorageInfo(all); if(typeof syncBulkBar==='function') syncBulkBar();
+    }
+  };
+})();
+
+// Make f-article-no editable in price check
+(function enableArticleNoEdit(){
+  const el=document.getElementById('f-article-no');
+  if(el){
+    el.removeAttribute('readonly');
+    el.placeholder='z.B. 2026-0007';
+    el.addEventListener('change', ()=>{
+      const v=el.value.trim();
+      if(!v) return;
+      if(currentItemId){
+        const l=inventoryData();
+        const r=l.find(x=>x.id===currentItemId);
+        if(r){ r.articleNo=v; r.updated=new Date().toISOString(); try{saveInventoryData(l);}catch(e){} }
+      }
+      showToast('Artikelnummer: '+v);
+    });
+  }
+})();
+
 updateStepProgress();
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dc00490a313ec7',t:'MTc4NDQ4Nzk2Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
