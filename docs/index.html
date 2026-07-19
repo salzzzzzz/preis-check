@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Preis-Check · Build 2026.07.19b</title>
+<title>Preis-Check · Build 2026.07.19c</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
 
@@ -340,7 +340,7 @@
 <body>
 <div class="sidebar">
   <div class="sidebar-title">Preis-Check</div>
-  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19b</div>
+  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19c</div>
   <button class="nav-btn active" data-view="check" onclick="switchView('check',this)">🧮 Preis-Check</button>
   <button class="nav-btn" data-view="cloud" onclick="switchView('cloud',this)">☁️ Cloud-Sync</button>
   <button class="nav-btn" data-view="privacy" onclick="switchView('privacy',this)">🔒 Datenschutz</button>
@@ -734,9 +734,13 @@
       <button class="ghost" onclick="bulkClearSelection()">Auswahl weg</button>
     </div>
     <div id="storage-info" class="muted" style="font-size:11px;margin-bottom:10px;"></div>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+    <div id="storage-actions" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+      <button class="primary" onclick="cleanupLocalStorage(false)">🧹 Speicher aufräumen</button>
+      <button class="ghost" onclick="cleanupLocalStorage(true)">⚡ Notfall: Fotos stark verkleinern</button>
+      <button class="ghost" onclick="stripAllLocalPhotos()">🖼️ Fotos aus lokalem Speicher entfernen</button>
       <button class="ghost" onclick="exportSalesMonthExcel()">📤 Nur Verkäufe Monat exportieren</button>
     </div>
+    <div id="storage-details" class="muted" style="font-size:11px;margin-bottom:10px;line-height:1.5;"></div>
     <div id="inventory-list" class="inventory-grid"></div>
   </div>
 </div>
@@ -831,7 +835,7 @@ const CORRECTIONS_KEY = 'preis-check-corrections';
 const STYLE_KEY = 'preis-check-style-template';
 const INVENTORY_KEY = 'preis-check-inventory';
 const BACKUPS_KEY = 'preis-check-backups';
-const APP_BUILD = '2026.07.19b';
+const APP_BUILD = '2026.07.19c';
 const RECENT_KEY = 'preis-check-recent';
 const LEARN_KEY = 'preis-check-name-learn';
 const TITLE_LANG_KEY = 'preis-check-title-lang';
@@ -2612,15 +2616,76 @@ function switchView(view, button) {
   if (view === 'stats') renderStats();
 }
 function backupData(){try{return JSON.parse(localStorage.getItem(BACKUPS_KEY)||'[]')}catch(e){return[]}}
-function createAutoBackup(reason='Automatisch'){try{const b=backupData();b.unshift({id:Date.now().toString(36),date:new Date().toISOString(),reason,data:inventoryData()});localStorage.setItem(BACKUPS_KEY,JSON.stringify(b.slice(0,5)));renderBackups()}catch(e){console.warn('Backup konnte nicht erstellt werden',e)}}
+function createAutoBackup(reason='Automatisch'){
+  try{
+    // Auto-Backups OHNE Fotos – sparen massiv Speicher
+    const slim = inventoryData().map(r=>({...r, photos:[]}));
+    const b = backupData();
+    b.unshift({id:Date.now().toString(36), date:new Date().toISOString(), reason, data:slim, noPhotos:true});
+    // nur 2 Auto-Backups behalten
+    try { localStorage.setItem(BACKUPS_KEY, JSON.stringify(b.slice(0,2))); }
+    catch(e){ try { localStorage.setItem(BACKUPS_KEY, JSON.stringify(b.slice(0,1))); } catch(e2){ localStorage.removeItem(BACKUPS_KEY); } }
+    renderBackups();
+  }catch(e){ console.warn('Backup konnte nicht erstellt werden', e); }
+}
 function renderBackups(){const e=document.getElementById('backup-list'),info=document.getElementById('backup-info');if(!e)return;const b=backupData();if(info)info.textContent=b.length?`Letztes Backup: ${new Date(b[0].date).toLocaleString('de-DE')} · maximal 5 Sicherungen`:'Noch kein automatisches Backup vorhanden.';e.innerHTML=b.map(x=>`<div class="inventory-card"><b>${escapeHtml(x.reason)}</b><p>${new Date(x.date).toLocaleString('de-DE')} · ${(x.data||[]).length} Artikel</p><div class="inventory-actions"><button class="ghost" onclick="restoreBackup('${x.id}')">Wiederherstellen</button><button class="ghost" onclick="deleteBackup('${x.id}')">Löschen</button></div></div>`).join('')}
 function restoreBackup(id){const b=backupData().find(x=>x.id===id);if(!b||!confirm('Dieses Backup wiederherstellen? Aktuelle Daten werden ersetzt.'))return;createAutoBackup('Vor Wiederherstellung');saveInventoryData(b.data||[]);renderInventory();renderStats();alert('Backup wiederhergestellt.')}
 function deleteBackup(id){localStorage.setItem(BACKUPS_KEY,JSON.stringify(backupData().filter(x=>x.id!==id)));renderBackups()}
 
 function inventoryData(){try{return JSON.parse(localStorage.getItem(INVENTORY_KEY)||'[]')}catch(e){return[]}}
-function saveInventoryData(list){localStorage.setItem(INVENTORY_KEY,JSON.stringify(list))}
+function byteLen(str){ try { return new Blob([str||'']).size; } catch(e){ return (str||'').length; } }
+function lsKeySize(key){ try { return byteLen(localStorage.getItem(key)||''); } catch(e){ return 0; } }
+function getLocalStorageReport(){
+  const keys = [];
+  let total = 0;
+  try {
+    for (let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      const s = lsKeySize(k);
+      keys.push({ key:k, bytes:s });
+      total += s;
+    }
+  } catch(e) {}
+  keys.sort((a,b)=>b.bytes-a.bytes);
+  const inv = inventoryData();
+  let photoBytes = 0, photoCount = 0, itemsWithPhotos = 0;
+  inv.forEach(r=>{
+    const ph = Array.isArray(r.photos)?r.photos:[];
+    if(ph.length) itemsWithPhotos++;
+    ph.forEach(p=>{ photoBytes += byteLen(p); photoCount++; });
+    if(r.mainPhoto && typeof r.mainPhoto==='string') photoBytes += byteLen(r.mainPhoto);
+  });
+  return { total, keys, invCount: inv.length, photoBytes, photoCount, itemsWithPhotos };
+}
+function formatMB(b){ return (b/1024/1024).toFixed(2)+' MB'; }
+function isQuotaError(err){
+  const m = String(err && (err.name||err.message)||err||'');
+  return /quota|storage|voll|exceeded|NS_ERROR_DOM_QUOTA/i.test(m);
+}
+function saveInventoryData(list){
+  const payload = JSON.stringify(list||[]);
+  try {
+    localStorage.setItem(INVENTORY_KEY, payload);
+    return true;
+  } catch (e) {
+    if (!isQuotaError(e)) throw e;
+    // progressive emergency shrink
+    let arr = JSON.parse(payload);
+    // 1) keep max 2 photos
+    arr = arr.map(r => ({...r, photos: Array.isArray(r.photos)?r.photos.slice(0,2):[] }));
+    try { localStorage.setItem(INVENTORY_KEY, JSON.stringify(arr)); return true; } catch(e2) {}
+    // 2) keep 1 photo
+    arr = arr.map(r => ({...r, photos: Array.isArray(r.photos)&&r.photos.length?[r.photos[r.mainPhoto||0]||r.photos[0]]:[] }));
+    try { localStorage.setItem(INVENTORY_KEY, JSON.stringify(arr)); return true; } catch(e3) {}
+    // 3) strip all photos
+    arr = arr.map(r => ({...r, photos: [] }));
+    try { localStorage.setItem(INVENTORY_KEY, JSON.stringify(arr)); return true; } catch(e4) {
+      throw new Error('LocalStorage voll – bitte „Speicher aufräumen“ nutzen oder Backup exportieren und alte Artikel löschen.');
+    }
+  }
+}
 function nextArticleNo(){const year=new Date().getFullYear(),nums=inventoryData().map(x=>parseInt(String(x.articleNo||'').replace(/\D/g,''),10)).filter(Number.isFinite);return year+'-'+String((Math.max(0,...nums)%10000)+1).padStart(4,'0')}
-function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{localStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:currentRecord()}))}catch(e){}},500)}
+function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{const rec=currentRecord(); const slim={...rec, photos:(rec.photos||[]).slice(0,1)}; localStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:slim}))}catch(e){try{localStorage.removeItem('preis-check-draft')}catch(e2){}}},800)}
 function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';if(document.getElementById('f-size'))document.getElementById('f-size').value=r.size||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}if(document.getElementById('generated-description')&&r.description)document.getElementById('generated-description').value=r.description;prices=r.prices||[];pendingImages=Array.isArray(r.photos)?r.photos.slice(0, MAX_PHOTOS):[];pendingImage=pendingImages[0]||null;if(document.getElementById('f-chest')&&r.chest)document.getElementById('f-chest').value=r.chest;if(document.getElementById('f-length')&&r.length)document.getElementById('f-length').value=r.length;if(document.getElementById('f-shoulder')&&r.shoulder)document.getElementById('f-shoulder').value=r.shoulder;if(document.getElementById('f-sleeve')&&r.sleeve)document.getElementById('f-sleeve').value=r.sleeve;renderPrices();syncPhotoUi();renderResearchLinks();calculate()}}catch(e){}}
 
 function currentRecord(){
@@ -2662,7 +2727,7 @@ function currentRecord(){
     updated: now
   };
 }
-function saveCurrentItem(options = {}) {
+async function saveCurrentItem(options = {}) {
   const quiet = !!options.quiet;
   createAutoBackup('Vor dem Speichern');
   const r = currentRecord();
@@ -2672,12 +2737,15 @@ function saveCurrentItem(options = {}) {
     document.getElementById('save-status').textContent = 'Bitte zuerst Artikeldaten eintragen.';
     return false;
   }
-  // Komprimierte Fotos falls Storage eng
+  // Fotos vor dem Speichern kompakt halten
   try {
-    const bytes = new Blob([JSON.stringify(inventoryData().concat([r]))]).size;
-    if (bytes > 4.2 * 1024 * 1024 && r.photos?.length) {
-      // behalte max 4 Fotos bei Speicherdruck
-      r.photos = r.photos.slice(0, 4);
+    if (r.photos?.length) {
+      if (typeof compressPhotosForStorage === 'function') {
+        r.photos = await compressPhotosForStorage(r.photos);
+      }
+      const rep = typeof getLocalStorageReport==='function' ? getLocalStorageReport() : null;
+      if (rep && rep.total > 3.5*1024*1024) r.photos = r.photos.slice(0, 2);
+      if (rep && rep.total > 4.2*1024*1024) r.photos = r.photos.slice(0, 1);
     }
   } catch (e) {}
   currentItemId = r.id;
@@ -2946,7 +3014,25 @@ function newItem() {
   updateStepProgress();
 }
 function setMainPhoto(id){const l=inventoryData(),r=l.find(x=>x.id===id);if(!r||!r.photos?.length)return;const n=prompt('Nummer des Hauptbilds (1–'+r.photos.length+')','1'),i=parseInt(n,10)-1;if(i>=0&&i<r.photos.length){r.mainPhoto=i;r.updated=new Date().toISOString();saveInventoryData(l);renderInventory()}}
-function updateStorageInfo(list){const bytes=new Blob([JSON.stringify(list)]).size,mb=(bytes/1024/1024).toFixed(2),pct=Math.min(100,bytes/5000000*100),el=document.getElementById('storage-info');if(el)el.innerHTML=`Lokaler Speicher: ca. ${mb} MB <div class="storage-bar"><span style="width:${pct}%"></span></div>`}
+function updateStorageInfo(list){
+  const rep = getLocalStorageReport();
+  // ~5MB soft limit typical for localStorage
+  const limit = 5*1024*1024;
+  const pct = Math.min(100, rep.total/limit*100);
+  const el = document.getElementById('storage-info');
+  if(el){
+    const danger = pct>85;
+    el.innerHTML = `Lokaler Speicher gesamt: <b style="color:${danger?'var(--danger)':'var(--ink)'}">${formatMB(rep.total)}</b> / ~5 MB`+
+      ` · Inventar ${rep.invCount} Artikel · Fotos ${rep.photoCount} (~${formatMB(rep.photoBytes)})`+
+      `<div class="storage-bar"><span style="width:${pct}%;background:${danger?'var(--danger)':(pct>70?'var(--gold)':'var(--success)')}"></span></div>`+
+      (danger?`<div style="color:var(--danger);margin-top:4px;">Speicher kritisch – bitte aufräumen!</div>`:'');
+  }
+  const det = document.getElementById('storage-details');
+  if(det){
+    const top = rep.keys.slice(0,6).map(k=>`${escapeHtml(k.key)}: ${formatMB(k.bytes)}`).join(' · ');
+    det.innerHTML = top ? ('Belegung: '+top) : '';
+  }
+}
 
 function daysBetween(a, b) {
   const ms = new Date(b).getTime() - new Date(a).getTime();
@@ -3048,6 +3134,96 @@ function saveGoals() {
   renderStats();
 }
 function csvCell(v){return '"'+String(v??'').replaceAll('"','""')+'"'}
+
+async function shrinkDataUrl(dataUrl, maxDim, quality){
+  try { return await resizeImage(dataUrl, maxDim, quality); } catch(e){ return dataUrl; }
+}
+async function cleanupLocalStorage(aggressive=false){
+  const before = getLocalStorageReport();
+  // 1) export safety backup as download first
+  try {
+    const blob = new Blob([JSON.stringify({inventory:inventoryData(), corrections:loadCorrections(), exported:new Date().toISOString(), note:'pre-cleanup'}, null, 2)], {type:'application/json'});
+    downloadBlob(blob, 'preis-check-backup-vor-cleanup.json');
+  } catch(e) {}
+
+  // 2) clear heavy non-essential keys
+  try { localStorage.removeItem(BACKUPS_KEY); } catch(e){}
+  try { localStorage.removeItem('preis-check-draft'); } catch(e){}
+  try { localStorage.removeItem(RECENT_KEY); } catch(e){}
+  // keep learn/goals/keys
+
+  // 3) compress or strip inventory photos
+  let list = inventoryData();
+  const maxDim = aggressive ? 420 : 640;
+  const quality = aggressive ? 0.45 : 0.58;
+  const maxPhotos = aggressive ? 1 : 2;
+  showToast(aggressive ? 'Notfall-Komprimierung…' : 'Fotos werden verkleinert…', 5000);
+  const out = [];
+  for (const r of list) {
+    const copy = {...r};
+    const photos = Array.isArray(r.photos) ? r.photos : [];
+    // prefer main photo first
+    const ordered = photos.slice();
+    if (Number.isInteger(r.mainPhoto) && r.mainPhoto>0 && r.mainPhoto<ordered.length){
+      const [m] = ordered.splice(r.mainPhoto,1); ordered.unshift(m);
+    }
+    const keep = ordered.slice(0, maxPhotos);
+    const shrunk = [];
+    for (const p of keep){
+      if (typeof p === 'string' && p.startsWith('data:')) shrunk.push(await shrinkDataUrl(p, maxDim, quality));
+      else if (typeof p === 'string' && p) shrunk.push(p); // remote urls ok
+    }
+    copy.photos = shrunk;
+    copy.mainPhoto = 0;
+    // trim history
+    if (Array.isArray(copy.priceHistory)) copy.priceHistory = copy.priceHistory.slice(0, 8);
+    // trim long descriptions a bit only if aggressive
+    if (aggressive && copy.description && copy.description.length > 4000) copy.description = copy.description.slice(0,4000);
+    out.push(copy);
+  }
+  try {
+    // write directly with fallbacks
+    saveInventoryData(out);
+  } catch(e) {
+    // last resort strip photos
+    saveInventoryData(out.map(r=>({...r, photos:[]})));
+  }
+
+  // 4) shrink library images in corrections
+  try {
+    const corr = loadCorrections().map(c=>{
+      const cc={...c};
+      if (cc.image && String(cc.image).startsWith('data:')) {
+        // sync shrink not possible easily; drop huge library images if aggressive
+        if (aggressive || byteLen(cc.image) > 150000) cc.image = '';
+      }
+      return cc;
+    });
+    saveCorrections(corr.slice(0, 80));
+  } catch(e){}
+
+  const after = getLocalStorageReport();
+  updateStorageInfo(inventoryData());
+  renderInventory();
+  renderStats();
+  const freed = Math.max(0, before.total - after.total);
+  const msg = `Aufräumen fertig: ${formatMB(before.total)} → ${formatMB(after.total)} (frei ca. ${formatMB(freed)})`;
+  showToast(msg, 5000);
+  alert(msg + '\n\nTipp: Danach Seite neu laden. Für viele Fotos besser Cloud-Sync nutzen oder Fotos lokal entfernen.');
+}
+function stripAllLocalPhotos(){
+  if(!confirm('Wirklich ALLE lokalen Fotos aus dem Inventar entfernen? (Textdaten bleiben. Zuerst Backup exportieren wird empfohlen.)')) return;
+  try { exportBackup(); } catch(e){}
+  const list = inventoryData().map(r=>({...r, photos:[]}));
+  try { localStorage.removeItem(BACKUPS_KEY); } catch(e){}
+  try { localStorage.removeItem('preis-check-draft'); } catch(e){}
+  saveInventoryData(list);
+  pendingImages=[]; pendingImage=null; if(typeof syncPhotoUi==='function') syncPhotoUi();
+  updateStorageInfo(list); renderInventory(); renderStats();
+  showToast('Alle lokalen Fotos entfernt');
+  alert('Lokale Fotos entfernt. Speicher sollte wieder frei sein.');
+}
+
 function exportBackup(){const blob=new Blob([JSON.stringify({inventory:inventoryData(),corrections:loadCorrections(),exported:new Date().toISOString()},null,2)],{type:'application/json'});downloadBlob(blob,'preis-check-backup.json')}
 function importBackup(file){if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const d=JSON.parse(reader.result);if(Array.isArray(d.inventory))saveInventoryData(d.inventory);if(Array.isArray(d.corrections))saveCorrections(d.corrections);renderInventory();renderStats();renderCorrections();alert('Backup importiert.')}catch(e){alert('Backup konnte nicht gelesen werden.')}};reader.readAsText(file)}
 function taxFilteredItems(){const mode=document.getElementById('tax-period')?.value||'all',now=new Date();return inventoryData().filter(r=>{if(mode==='all')return true;const d=new Date(r.updated||0);return mode==='year'?d.getFullYear()===now.getFullYear():d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()})}
@@ -3747,7 +3923,7 @@ async function compressPhotosForStorage(photos){
   for(const p of (photos||[]).slice(0, MAX_PHOTOS)){
     try{
       // already small-ish; create thumb-like compression for local store
-      out.push(await resizeImage(p, 700, 0.62));
+      out.push(await resizeImage(p, 560, 0.55));
     }catch(e){ out.push(p); }
   }
   return out;
@@ -3798,7 +3974,7 @@ generateAllListing = async function(){
 
 // wrap saveCurrentItem for similarity + listed + compressed photos + history
 const _saveCurrentItem = saveCurrentItem;
-saveCurrentItem = function(options={}){
+saveCurrentItem = async function(options={}){
   // required soft check
   const name=document.getElementById('f-name')?.value.trim()||'';
   const brand=document.getElementById('f-brand')?.value.trim()||'';
@@ -3822,31 +3998,37 @@ saveCurrentItem = function(options={}){
   if(sims.length && !options.quiet && !options.force){
     if(!confirm('Es gibt ähnliche Artikel im Inventar. Trotzdem speichern?')) return false;
   }
-  // compress photos async-safe: do sync best-effort via existing sizes
-  const ok=_saveCurrentItem({...options, quiet:true});
+  let ok=false;
+  try {
+    ok = await _saveCurrentItem({...options, quiet:true});
+  } catch (e) {
+    if (typeof isQuotaError === 'function' && isQuotaError(e)) {
+      document.getElementById('save-status').textContent = 'Speicher voll – unter Inventar „Speicher aufräumen“ nutzen.';
+      showToast('LocalStorage voll – bitte aufräumen');
+      return false;
+    }
+    document.getElementById('save-status').textContent = 'Speicher-Fehler: ' + (e.message||e);
+    return false;
+  }
   if(!ok) return false;
-  // post-process saved row: history + recent + listedAt already in currentRecord
+  // post-process saved row: history + recent
   const l=inventoryData();
   const r=l.find(x=>x.id===currentItemId);
   if(r){
     pushPriceHistory(r, options.listed?'Eingestellt':'Gespeichert');
-    // apply brand preset tags into description once if empty-ish
-    const preset=findBrandPreset(r.brand, r.category);
-    if(preset?.tags && r.description && !r.description.includes('#'+String(preset.tags).split(/\s+/)[0])){
-      // non-invasive: skip auto-append to avoid dupes; user can regenerate
-    }
-    saveInventoryData(l);
+    try { saveInventoryData(l); } catch(e) { /* ignore history write failure */ }
     pushRecent(r.id);
     renderPriceHistoryForCurrent();
   }
   document.getElementById('save-status').textContent = options.quiet ? 'Gespeichert.' : (options.listed ? 'Als eingestellt gespeichert.' : 'Gespeichert.');
   if(!options.quiet) showToast(options.listed ? 'Eingestellt ✓' : 'Gespeichert ✓');
   renderStats();
+  if (typeof updateStorageInfo === 'function') updateStorageInfo(inventoryData());
   return true;
 };
-window.saveAsListed = function(){
+window.saveAsListed = async function(){
   document.getElementById('f-status').value='eingestellt';
-  return saveCurrentItem({ listed:true });
+  return await saveCurrentItem({ listed:true });
 };
 
 // Enhanced inventory renderer
@@ -4014,5 +4196,5 @@ try{
 updateStepProgress();
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbeffedb983ec7',t:'MTc4NDQ4NzI5NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbf319eca73ec7',t:'MTc4NDQ4NzQyMw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
