@@ -259,9 +259,20 @@
       <div class="hint" id="dropzone-hint">Foto hierher ziehen oder klicken zum Auswählen</div>
       <input type="file" id="file-input" accept="image/*" capture="environment" multiple onchange="handleFiles(this.files)" />
     </div>
-    <div class="analyze-row">
-      <button class="ghost" id="analyze-btn" onclick="analyzeImage()" disabled>Foto analysieren</button>
+    <div class="analyze-row" style="flex-wrap:wrap;">
+      <button class="primary" id="all-generate-btn" onclick="generateAllListing()" disabled title="Foto analysieren + Titel + Beschreibung">⚡ Alles generieren</button>
+      <button class="ghost" id="analyze-btn" onclick="analyzeImage()" disabled>Nur Foto analysieren</button>
       <span class="analyze-status" id="analyze-status"></span>
+    </div>
+    <div style="font-size:11px;color:var(--ink-muted);margin:6px 0 2px;">
+      <b style="color:var(--ink);">One-Click:</b> analysiert das Foto, füllt Marke/Kategorie/Farbe/Preise und erzeugt Titel + Beschreibung. Danach nur noch EK eintragen und speichern.
+    </div>
+    <div id="all-generate-progress" style="display:none;margin:8px 0 4px;">
+      <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--ink-muted);margin-bottom:4px;">
+        <span id="all-generate-step">Bereit</span>
+        <span id="all-generate-pct">0%</span>
+      </div>
+      <div class="storage-bar"><span id="all-generate-bar" style="width:0%;background:var(--gold);transition:width .25s ease;"></span></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap;">
       <button class="primary" onclick="saveCurrentItem()">📦 Aktuellen Artikel speichern</button>
@@ -943,35 +954,25 @@ function copyTitle() {
   if (st) st.textContent = 'Titel in Zwischenablage kopiert.';
 }
 
-async function generateTitle() {
+async function runTitleGeneration({ silent = false } = {}) {
   const name = document.getElementById('f-name').value.trim();
   const brand = document.getElementById('f-brand').value.trim();
   const category = document.getElementById('f-category').value.trim();
-  const st = document.getElementById('title-status');
-  const b = document.getElementById('title-btn');
-
   if (!name && !brand && !category) {
-    st.textContent = 'Bitte zuerst Artikel-Daten ausfüllen oder Foto analysieren.';
-    return;
+    throw new Error('Keine Artikel-Daten für den Titel.');
   }
 
   const key = getApiKey();
-  // Ohne Key: direkt lokalen Langtitel (mind. 50 Wörter) erzeugen
   if (!key) {
     const local = generateLocalTitle();
-    setGeneratedTitle(local, 'Lokaler Titel erstellt (kein API-Key) · ' + countWords(local) + ' Wörter.');
-    return;
+    setGeneratedTitle(local, silent ? null : ('Lokaler Titel erstellt (kein API-Key) · ' + countWords(local) + ' Wörter.'));
+    return { source: 'local', title: local };
   }
 
-  b.disabled = true;
-  st.textContent = 'Generiere Titel…';
   try {
-    let raw;
-    if (getProvider() === 'groq') {
-      raw = await groqDirectRequest(key, buildTitlePrompt(), pendingImages);
-    } else {
-      raw = await geminiDirectRequest(key, buildTitlePrompt(), pendingImages);
-    }
+    const raw = getProvider() === 'groq'
+      ? await groqDirectRequest(key, buildTitlePrompt(), pendingImages)
+      : await geminiDirectRequest(key, buildTitlePrompt(), pendingImages);
     let title;
     try {
       const parsed = parseGeminiJSON(raw);
@@ -980,13 +981,33 @@ async function generateTitle() {
       title = normalizeGeneratedTitle(raw);
     }
     if (!title) throw new Error('Leerer Titel');
-    setGeneratedTitle(title, 'Fertig mit ' + (getProvider() === 'groq' ? 'Groq' : 'Gemini') + ' · ' + countWords(title) + ' Wörter.');
+    const providerLabel = getProvider() === 'groq' ? 'Groq' : 'Gemini';
+    setGeneratedTitle(title, silent ? null : ('Fertig mit ' + providerLabel + ' · ' + countWords(title) + ' Wörter.'));
+    return { source: providerLabel, title };
   } catch (err) {
-    if (/quota|rate limit|429|billing/i.test(err.message || '')) {
-      setGeneratedTitle(generateLocalTitle(), 'Kontingent erreicht · lokaler Titel erstellt.');
-    } else {
-      setGeneratedTitle(generateLocalTitle(), 'Fehler: ' + (err.message || 'unbekannt') + ' · lokaler Titel erstellt.');
-    }
+    const local = generateLocalTitle();
+    const reason = /quota|rate limit|429|billing/i.test(err.message || '')
+      ? 'Kontingent erreicht · lokaler Titel erstellt.'
+      : ('Fehler: ' + (err.message || 'unbekannt') + ' · lokaler Titel erstellt.');
+    setGeneratedTitle(local, silent ? null : reason);
+    return { source: 'local-fallback', title: local, error: err.message };
+  }
+}
+
+async function generateTitle() {
+  const st = document.getElementById('title-status');
+  const b = document.getElementById('title-btn');
+  const name = document.getElementById('f-name').value.trim();
+  const brand = document.getElementById('f-brand').value.trim();
+  const category = document.getElementById('f-category').value.trim();
+  if (!name && !brand && !category) {
+    st.textContent = 'Bitte zuerst Artikel-Daten ausfüllen oder Foto analysieren.';
+    return;
+  }
+  b.disabled = true;
+  st.textContent = 'Generiere Titel…';
+  try {
+    await runTitleGeneration({ silent: false });
   } finally {
     b.disabled = false;
   }
@@ -1157,25 +1178,52 @@ function applyGeneratedDescription(raw, statusText) {
   if (st) st.textContent = statusText || 'Fertig.';
 }
 
+async function runDescriptionGeneration({ silent = false } = {}) {
+  const f = getDescriptionFields();
+  if (!f.name && !f.brand && !f.category) {
+    throw new Error('Keine Artikel-Daten für die Beschreibung.');
+  }
+  const key = getApiKey();
+  if (!key) {
+    document.getElementById('generated-description').value = generateLocalDescription();
+    if (!silent) {
+      const st = document.getElementById('desc-status');
+      if (st) st.textContent = 'Lokale Beschreibung erstellt (kein API-Key).';
+    }
+    return { source: 'local' };
+  }
+  try {
+    const prompt = buildDescriptionPrompt();
+    const raw = getProvider() === 'groq'
+      ? await groqDirectRequest(key, prompt, pendingImages)
+      : await geminiDirectRequest(key, prompt, pendingImages);
+    const providerLabel = getProvider() === 'groq' ? 'Groq' : 'Gemini';
+    applyGeneratedDescription(raw, silent ? null : ('Fertig mit ' + providerLabel + '.'));
+    return { source: providerLabel };
+  } catch (err) {
+    document.getElementById('generated-description').value = generateLocalDescription();
+    if (!silent) {
+      const st = document.getElementById('desc-status');
+      if (st) st.textContent = 'Fehler: ' + (err.message || 'unbekannt') + ' · lokale Beschreibung erstellt.';
+    }
+    return { source: 'local-fallback', error: err.message };
+  }
+}
+
 async function generateDescription() {
   const key = getApiKey();
   if (!key) { openSettings(); return; }
   const f = getDescriptionFields();
   const descStatus = document.getElementById('desc-status');
   const descBtn = document.getElementById('desc-btn');
-  if (!f.name && !f.brand && !f.category) { descStatus.textContent = 'Bitte zuerst Artikel-Daten ausfüllen oder Foto analysieren.'; return; }
-
+  if (!f.name && !f.brand && !f.category) {
+    descStatus.textContent = 'Bitte zuerst Artikel-Daten ausfüllen oder Foto analysieren.';
+    return;
+  }
   descStatus.textContent = 'Generiere Beschreibung…';
   descBtn.disabled = true;
   try {
-    const prompt = buildDescriptionPrompt();
-    const raw = getProvider() === 'groq'
-      ? await groqDirectRequest(key, prompt, pendingImages)
-      : await geminiDirectRequest(key, prompt, pendingImages);
-    applyGeneratedDescription(raw, 'Fertig mit ' + (getProvider() === 'groq' ? 'Groq' : 'Gemini') + '.');
-  } catch (err) {
-    document.getElementById('generated-description').value = generateLocalDescription();
-    descStatus.textContent = 'Fehler: ' + (err.message || 'unbekannt') + ' · lokale Beschreibung erstellt.';
+    await runDescriptionGeneration({ silent: false });
   } finally {
     descBtn.disabled = false;
   }
@@ -1318,6 +1366,8 @@ async function handleFile(file) {
     previewImg.style.display = 'inline-block';
     document.getElementById('dropzone-hint').style.display = 'none';
     document.getElementById('analyze-btn').disabled = false;
+    const allBtn = document.getElementById('all-generate-btn');
+    if (allBtn) allBtn.disabled = false;
   };
   reader.readAsDataURL(file);
 }
@@ -1399,6 +1449,46 @@ function applyPhotoAnalysis(parsed) {
   return { low, high };
 }
 
+async function runPhotoAnalysis({ silent = false } = {}) {
+  const key = getApiKey();
+  if (!key) throw new Error('NO_API_KEY');
+  if (!pendingImage && !(pendingImages && pendingImages.length)) {
+    throw new Error('NO_PHOTO');
+  }
+  const provider = getProvider();
+  const imgs = (pendingImages.length ? pendingImages : [pendingImage]).filter(Boolean);
+  const prompt = buildPhotoAnalyzePrompt();
+  try {
+    const raw = provider === 'groq'
+      ? await groqDirectRequest(key, prompt, imgs)
+      : await geminiDirectRequest(key, prompt, imgs);
+    const parsed = parseGeminiJSON(raw);
+    const { low, high } = applyPhotoAnalysis(parsed);
+    const providerLabel = provider === 'groq' ? 'Groq' : 'Gemini';
+    const msg = (!isNaN(low) && !isNaN(high))
+      ? ('Erkannt · ' + providerLabel + '-Preisvorschlag: ' + fmtEUR(low) + '–' + fmtEUR(high))
+      : 'Erkannt';
+    if (!silent) {
+      const statusEl = document.getElementById('analyze-status');
+      if (statusEl) statusEl.textContent = msg;
+    }
+    return { ok: true, low, high, provider: providerLabel, message: msg };
+  } catch (err) {
+    if (/quota|rate limit|429|billing/i.test(err.message || '')) {
+      const fallback = localFallbackEstimate();
+      const msg = fallback
+        ? 'Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.'
+        : 'Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
+      if (!silent) {
+        const statusEl = document.getElementById('analyze-status');
+        if (statusEl) statusEl.textContent = msg;
+      }
+      return { ok: !!fallback, error: err.message, fallback: true, message: msg };
+    }
+    throw err;
+  }
+}
+
 async function analyzeImage() {
   const key = getApiKey();
   if (!key) { openSettings(); return; }
@@ -1409,29 +1499,149 @@ async function analyzeImage() {
   const statusEl = document.getElementById('analyze-status');
   const provider = getProvider();
   statusEl.textContent = 'Analysiere Foto mit ' + (provider === 'groq' ? 'Groq' : 'Gemini') + '…';
-  document.getElementById('analyze-btn').disabled = true;
+  setListingButtonsDisabled(true);
   try {
-    const imgs = (pendingImages.length ? pendingImages : [pendingImage]).filter(Boolean);
-    const prompt = buildPhotoAnalyzePrompt();
-    const raw = provider === 'groq'
-      ? await groqDirectRequest(key, prompt, imgs)
-      : await geminiDirectRequest(key, prompt, imgs);
-    const parsed = parseGeminiJSON(raw);
-    const { low, high } = applyPhotoAnalysis(parsed);
-    statusEl.textContent = (!isNaN(low) && !isNaN(high))
-      ? ('Erkannt · ' + (provider === 'groq' ? 'Groq' : 'Gemini') + '-Preisvorschlag: ' + fmtEUR(low) + '–' + fmtEUR(high))
-      : 'Erkannt';
+    await runPhotoAnalysis({ silent: false });
   } catch (err) {
-    if (/quota|rate limit|429|billing/i.test(err.message || '')) {
-      const fallback = localFallbackEstimate();
-      statusEl.textContent = fallback
-        ? 'Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.'
-        : 'Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
-    } else {
-      statusEl.textContent = 'Fehler: ' + (err.message || 'unbekannt');
-    }
+    statusEl.textContent = 'Fehler: ' + (err.message || 'unbekannt');
   } finally {
-    document.getElementById('analyze-btn').disabled = false;
+    setListingButtonsDisabled(false);
+  }
+}
+
+function setListingButtonsDisabled(disabled) {
+  ['analyze-btn', 'all-generate-btn', 'title-btn', 'desc-btn'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (id === 'analyze-btn' || id === 'all-generate-btn') {
+      // Foto-Buttons bleiben disabled, wenn kein Bild da ist
+      const hasPhoto = !!(pendingImage || (pendingImages && pendingImages.length));
+      el.disabled = disabled || !hasPhoto;
+    } else {
+      el.disabled = !!disabled;
+    }
+  });
+}
+
+function setAllGenerateProgress(stepLabel, pct) {
+  const wrap = document.getElementById('all-generate-progress');
+  const step = document.getElementById('all-generate-step');
+  const pctEl = document.getElementById('all-generate-pct');
+  const bar = document.getElementById('all-generate-bar');
+  if (wrap) wrap.style.display = 'block';
+  if (step) step.textContent = stepLabel || '';
+  if (pctEl) pctEl.textContent = Math.round(pct || 0) + '%';
+  if (bar) bar.style.width = Math.max(0, Math.min(100, pct || 0)) + '%';
+}
+
+function hideAllGenerateProgress(delayMs = 1800) {
+  setTimeout(() => {
+    const wrap = document.getElementById('all-generate-progress');
+    if (wrap) wrap.style.display = 'none';
+  }, delayMs);
+}
+
+function scrollToEkField() {
+  const ek = document.getElementById('f-ek-total');
+  if (!ek) return;
+  ek.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  try { ek.focus({ preventScroll: true }); } catch (e) { ek.focus(); }
+}
+
+async function generateAllListing() {
+  const statusEl = document.getElementById('analyze-status');
+  const key = getApiKey();
+  if (!key) { openSettings(); return; }
+  if (!pendingImage && !(pendingImages && pendingImages.length)) {
+    if (statusEl) statusEl.textContent = 'Bitte zuerst ein Foto auswählen.';
+    return;
+  }
+
+  setListingButtonsDisabled(true);
+  setAllGenerateProgress('1/3 · Foto wird analysiert…', 8);
+  if (statusEl) statusEl.textContent = 'One-Click: analysiere Foto…';
+
+  const summary = { analyze: null, title: null, description: null, errors: [] };
+
+  try {
+    // 1) Foto-Analyse
+    try {
+      summary.analyze = await runPhotoAnalysis({ silent: true });
+      if (statusEl) statusEl.textContent = summary.analyze.message || 'Foto erkannt.';
+      setAllGenerateProgress('1/3 · Foto erkannt ✓', 34);
+    } catch (err) {
+      summary.errors.push('Analyse: ' + (err.message || 'fehlgeschlagen'));
+      if (statusEl) statusEl.textContent = 'Analyse-Fehler: ' + (err.message || 'unbekannt') + ' · versuche Titel/Beschreibung trotzdem…';
+      setAllGenerateProgress('1/3 · Analyse fehlgeschlagen', 34);
+    }
+
+    // Ohne Artikeldaten abbrechen
+    const name = document.getElementById('f-name').value.trim();
+    const brand = document.getElementById('f-brand').value.trim();
+    const category = document.getElementById('f-category').value.trim();
+    if (!name && !brand && !category) {
+      throw new Error('Keine Artikeldaten nach der Analyse. Bitte Marke/Artikel manuell eintragen oder anderes Foto versuchen.');
+    }
+
+    // 2) Titel
+    setAllGenerateProgress('2/3 · Titel wird generiert…', 45);
+    const titleStatus = document.getElementById('title-status');
+    if (titleStatus) titleStatus.textContent = 'Generiere Titel…';
+    try {
+      summary.title = await runTitleGeneration({ silent: true });
+      if (titleStatus) {
+        titleStatus.textContent = summary.title.source === 'local' || summary.title.source === 'local-fallback'
+          ? ('Titel lokal · ' + countWords(summary.title.title || '') + ' Wörter')
+          : ('Titel fertig · ' + countWords(summary.title.title || '') + ' Wörter');
+      }
+      setAllGenerateProgress('2/3 · Titel fertig ✓', 67);
+    } catch (err) {
+      const local = generateLocalTitle();
+      setGeneratedTitle(local, null);
+      summary.title = { source: 'local-fallback', title: local, error: err.message };
+      summary.errors.push('Titel: ' + (err.message || 'fehlgeschlagen'));
+      if (titleStatus) titleStatus.textContent = 'Titel lokal erstellt.';
+      setAllGenerateProgress('2/3 · Titel (lokal)', 67);
+    }
+
+    // 3) Beschreibung
+    setAllGenerateProgress('3/3 · Beschreibung wird generiert…', 78);
+    const descStatus = document.getElementById('desc-status');
+    if (descStatus) descStatus.textContent = 'Generiere Beschreibung…';
+    try {
+      summary.description = await runDescriptionGeneration({ silent: true });
+      if (descStatus) {
+        descStatus.textContent = (summary.description.source === 'local' || summary.description.source === 'local-fallback')
+          ? 'Beschreibung lokal erstellt.'
+          : ('Beschreibung fertig mit ' + summary.description.source + '.');
+      }
+      setAllGenerateProgress('3/3 · Beschreibung fertig ✓', 100);
+    } catch (err) {
+      document.getElementById('generated-description').value = generateLocalDescription();
+      summary.description = { source: 'local-fallback', error: err.message };
+      summary.errors.push('Beschreibung: ' + (err.message || 'fehlgeschlagen'));
+      if (descStatus) descStatus.textContent = 'Beschreibung lokal erstellt.';
+      setAllGenerateProgress('3/3 · Beschreibung (lokal)', 100);
+    }
+
+    // Abschluss-Status
+    const parts = [];
+    if (summary.analyze?.ok !== false && !summary.errors.find(e => e.startsWith('Analyse'))) parts.push('Analyse');
+    parts.push('Titel');
+    parts.push('Beschreibung');
+    const doneMsg = summary.errors.length
+      ? ('⚡ Fertig mit Hinweisen · ' + parts.join(' + ') + ' · ' + summary.errors.join(' · ') + ' · Jetzt EK eintragen & speichern.')
+      : ('⚡ Alles generiert · ' + parts.join(' + ') + ' · Jetzt nur noch EK eintragen und speichern.');
+    if (statusEl) statusEl.textContent = doneMsg;
+    setAllGenerateProgress(summary.errors.length ? 'Fertig (teilweise lokal)' : 'Fertig ✓ – EK eintragen', 100);
+    hideAllGenerateProgress(3500);
+    scrollToEkField();
+  } catch (err) {
+    if (statusEl) statusEl.textContent = 'One-Click abgebrochen: ' + (err.message || 'unbekannt');
+    setAllGenerateProgress('Abgebrochen', 100);
+    hideAllGenerateProgress(2500);
+  } finally {
+    setListingButtonsDisabled(false);
   }
 }
 
@@ -1479,7 +1689,7 @@ function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-dr
 
 function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),color:(document.getElementById('f-color')?.value||'').trim(),era:(document.getElementById('f-era')?.value||'').trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0,5),title:document.getElementById('generated-title')?.value||'',description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
 function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=currentRecord();if(!r.articleNo)r.articleNo=nextArticleNo();document.getElementById('f-article-no').value=r.articleNo;if(!r.name&&!r.brand&&!r.category){document.getElementById('save-status').textContent='Bitte zuerst Artikeldaten eintragen.';return}currentItemId=r.id;const l=inventoryData(),i=l.findIndex(x=>x.id===r.id);if(i>=0)l[i]=r;else l.unshift(r);saveInventoryData(l);localStorage.removeItem('preis-check-draft');if(supabaseClient)syncAllToCloud();document.getElementById('save-status').textContent='Gespeichert.';renderStats()}
-function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos:[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();if(pendingImage){document.getElementById('preview-img').src=pendingImage;document.getElementById('preview-img').style.display='inline-block';document.getElementById('dropzone-hint').style.display='none'}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
+function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;currentItemId=id;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';if(document.getElementById('f-color'))document.getElementById('f-color').value=r.color||'';if(document.getElementById('f-era'))document.getElementById('f-era').value=r.era||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';if(document.getElementById('generated-title')){document.getElementById('generated-title').value=r.title||'';updateTitleCharCount()}prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos:[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();if(pendingImage){document.getElementById('preview-img').src=pendingImage;document.getElementById('preview-img').style.display='inline-block';document.getElementById('dropzone-hint').style.display='none';document.getElementById('analyze-btn').disabled=false;const allBtn=document.getElementById('all-generate-btn');if(allBtn)allBtn.disabled=false}else{document.getElementById('analyze-btn').disabled=true;const allBtn=document.getElementById('all-generate-btn');if(allBtn)allBtn.disabled=true}renderResearchLinks();calculate();switchView('check',document.querySelector('.nav-btn[data-view="check"]'))}
 function deleteItem(id){createAutoBackup('Vor dem Löschen');saveInventoryData(inventoryData().filter(x=>x.id!==id));renderInventory();renderStats()}
 function renderInventory(){const e=document.getElementById('inventory-list'),all=inventoryData(),q=(document.getElementById('inventory-search')?.value||'').toLowerCase(),f=document.getElementById('inventory-filter')?.value||'',sort=document.getElementById('inventory-sort')?.value||'new';let l=all.filter(r=>(!q||[r.name,r.brand,r.category].join(' ').toLowerCase().includes(q))&&(!f||r.status===f));l.sort((a,b)=>sort==='name'?String(a.name||'').localeCompare(String(b.name||'')):sort==='profit'?((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0)):String(b.updated||'').localeCompare(String(a.updated||'')));if(!l.length){e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>';updateStorageInfo(all);return}e.innerHTML=l.map(r=>{const m=median(r.prices||[]),profit=(r.soldPrice||0)-(r.ek||0);const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';return `<div class="inventory-card">${img}<h3>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3><p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p><p>Status: <b>${escapeHtml(r.status||'geplant')}</b>${r.platform?' · '+escapeHtml(r.platform):''}</p><p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}<div class="inventory-actions"><button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button><button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button><button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button><button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button></div></div>`}).join('');updateStorageInfo(all)}
 function duplicateItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;const copy=JSON.parse(JSON.stringify(r));copy.id=Date.now().toString(36);delete copy.cloudId;copy.articleNo=nextArticleNo();copy.name=(copy.name||'Artikel')+' (Kopie)';copy.status='geplant';copy.soldPrice=0;copy.updated=new Date().toISOString();const l=inventoryData();l.unshift(copy);saveInventoryData(l);renderInventory();renderStats()}
@@ -1504,7 +1714,7 @@ function generateInvoice(){saveInvoiceSettings();const id=document.getElementByI
 function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
 function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
 
-function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';const ts=document.getElementById('title-status');if(ts)ts.textContent='';updateTitleCharCount();renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block'}
+function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-color','f-era','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description','generated-title'].forEach(id=>{const el=document.getElementById(id);if(el)el.value=''});document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';const ts=document.getElementById('title-status');if(ts)ts.textContent='';const ds=document.getElementById('desc-status');if(ds)ds.textContent='';const as=document.getElementById('analyze-status');if(as)as.textContent='';updateTitleCharCount();renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block';document.getElementById('analyze-btn').disabled=true;const allBtn=document.getElementById('all-generate-btn');if(allBtn)allBtn.disabled=true;const prog=document.getElementById('all-generate-progress');if(prog)prog.style.display='none'}
 function learnedRange(brand,category,condition){const b=(brand||'').toLowerCase(),c=(category||'').toLowerCase(),co=(condition||'').toLowerCase();const list=loadCorrections().map(x=>{const ib=(x.brand||'').toLowerCase(),ic=(x.category||'').toLowerCase(),io=(x.condition||'').toLowerCase();let score=0;if(b&&ib===b)score+=5;else if(b&&ib.includes(b)||b&&ib&&b.includes(ib))score+=3;if(c&&ic===c)score+=5;else if(c&&ic.includes(c)||c&&ic&&c.includes(ic))score+=3;if(co&&io===co)score+=2;return {x,score}}).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score).slice(0,12);if(!list.length)return null;const weights=list.map(x=>x.score),sum=weights.reduce((a,v)=>a+v,0);return {low:list.reduce((a,v,i)=>a+v.x.low*weights[i],0)/sum,high:list.reduce((a,v,i)=>a+(v.x.high||v.x.low)*weights[i],0)/sum,count:list.length}}
 function renderLearningInsights(){const e=document.getElementById('learning-insights');if(!e)return;const l=loadCorrections(),values=l.flatMap(x=>[Number(x.low)||0,Number(x.high)||Number(x.low)||0]).filter(Boolean),brands=new Set(l.map(x=>x.brand).filter(Boolean)),cats=new Set(l.map(x=>x.category).filter(Boolean));e.innerHTML=`<div class="metric"><span class="muted">Preisreferenzen</span><strong>${l.length}</strong></div><div class="metric"><span class="muted">Marken gelernt</span><strong>${brands.size}</strong></div><div class="metric"><span class="muted">Kategorien gelernt</span><strong>${cats.size}</strong></div><div class="metric"><span class="muted">Durchschnittliche Range-Mitte</span><strong>${values.length?fmtEUR(values.reduce((a,v)=>a+v,0)/values.length):'–'}</strong></div>`}
 function localFallbackEstimate(){const r=learnedRange(document.getElementById('f-brand').value,document.getElementById('f-category').value,document.getElementById('f-condition').value);if(!r)return false;prices=prices.filter(p=>p.source!=='ai');prices.push({value:r.low,source:'ai'},{value:r.high,source:'ai'});renderPrices();calculate();return true}
@@ -1639,5 +1849,5 @@ if (titleInput) {
 }
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dba874eb587c50',t:'MTc4NDQ4NDM2NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbae21fa057c50',t:'MTc4NDQ4NDU5OA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
