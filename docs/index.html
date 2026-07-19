@@ -234,16 +234,16 @@
   <button class="nav-btn" data-view="invoices" onclick="switchView('invoices',this)">🧾 Rechnungen</button>
   <button class="nav-btn" data-view="library" onclick="switchView('library',this)">📚 Marken &amp; Artikel</button>
   <button class="nav-btn" data-view="stats" onclick="switchView('stats',this)">📊 Statistiken</button>
-  <button class="nav-btn" onclick="openSettings()">⚙️ Gemini API-Key</button>
+  <button class="nav-btn" onclick="openSettings()">⚙️ KI-Einstellungen</button>
   <button class="danger-btn" onclick="resetAllData()">🗑️ Alles gespeicherte löschen</button>
 </div>
 <div class="wrap">
 <div id="check-view" class="view">
-<div class="offline-banner" id="offline-banner">● Lokaler Modus bereit – Inventar, Rechnungen, Beschreibungen und Excel funktionieren auch ohne Gemini.</div>
+<div class="offline-banner" id="offline-banner">● Lokaler Modus bereit – Inventar, Rechnungen, Beschreibungen und Excel funktionieren auch ohne KI (Gemini/Groq).</div>
 
   <div class="top-row">
     <h1>Preis-Check</h1>
-    <button class="settings-btn" onclick="openSettings()">Gemini API-Key</button>
+    <button class="settings-btn" onclick="openSettings()">KI-Einstellungen</button>
   </div>
   <hr class="divider" />
 
@@ -311,7 +311,7 @@
   <div class="panel">
     <h2>4 · Marktpreis</h2>
     <div style="font-size:11px; color:var(--ink-muted); margin-bottom:8px;">
-      Nach der Foto-Analyse schlägt Gemini auf Basis des erkannten Artikels, der Marke, des Zustands und
+      Nach der Foto-Analyse schlägt die KI (Groq oder Gemini) auf Basis des erkannten Artikels, der Marke, des Zustands und
       deiner gespeicherten Korrekturen eine realistische Verkaufspreisspanne vor. Die Recherche-Buttons öffnen
       die Plattformen nur zur manuellen Kontrolle.
     </div>
@@ -498,16 +498,24 @@
 
 <div class="modal-overlay" id="settings-overlay">
   <div class="modal">
-    <h3>Google Gemini API-Key</h3>
+    <h3>KI-Einstellungen</h3>
     <p>
-      Kostenlos erhältlich auf aistudio.google.com (Google-Konto, kein Zahlungsmittel nötig).
-      Wird nur lokal in deinem Browser gespeichert (localStorage) und nur direkt an
-      Supabase wird für Cloud-Sync verwendet. Für eine vollständig geschützte KI-Nutzung müssen die API-Keys als Supabase Secrets in der Edge Function hinterlegt werden. Bei Groq wird der Proxy bereits verwendet; Gemini sollte nach dem Einrichten ebenfalls über den Proxy laufen.
+      <b>Empfehlung:</b> Groq (Llama) ist derzeit am zuverlässigsten und nutzt den Supabase-Proxy.<br>
+      Gemini kann aktuell Quota-/Rate-Limit-Probleme haben.<br><br>
+      <b>Groq-Key holen:</b> Kostenlos auf <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a><br>
+      <b>Gemini-Key (optional):</b> <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>
+    </p>
+    <p style="font-size:12px;color:var(--ink-muted);">
+      Keys werden nur lokal gespeichert. Die KI-Funktionen funktionieren auch lokal (ohne Key) mit Fallback-Beschreibungen.
     </p>
     <label class="field-label" style="margin-top:8px;">KI-Anbieter</label>
-    <select id="provider-input" onchange="toggleProviderKey()"><option value="gemini">Gemini</option><option value="groq">Groq · Llama 4 Scout</option></select>
-    <input id="api-key-input" placeholder="Gemini API-Key: AIzaSy..." style="margin-top:8px;" />
-    <input id="groq-key-input" placeholder="Groq API-Key: gsk_..." style="margin-top:8px;display:none;" />
+    <select id="provider-input" onchange="toggleProviderKey()"><option value="groq">Groq · Llama 4 Scout (empfohlen)</option><option value="gemini">Gemini</option></select>
+    <div id="provider-hint" style="font-size:11px;color:var(--ink-muted);margin:2px 0 6px;"></div>
+    <input id="api-key-input" placeholder="Gemini API-Key: AIzaSy..." style="margin-top:8px; display:none;" />
+    <input id="groq-key-input" placeholder="Groq API-Key (optional für Proxy): gsk_..." style="margin-top:8px;" />
+    <div style="margin-top:8px;">
+      <button class="ghost" onclick="testAIConnection()">🔄 Verbindung testen</button>
+    </div>
     <div class="modal-actions">
       <button class="primary" onclick="saveApiKey()">Speichern</button>
       <button class="ghost" onclick="closeSettings()">Schließen</button>
@@ -629,10 +637,19 @@ async function generateDescriptionSecureGemini(){
 async function analyzeImageSecureGemini(){const st=document.getElementById('analyze-status');st.textContent='Analysiere Bild (geschützt)…';const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. Antworte ausschließlich als JSON mit name, brand, category, condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const o=parseGeminiJSON(await secureGeminiRequest(prompt,pendingImages,'photo'));if(o.name)document.getElementById('f-name').value=o.name;if(o.brand)document.getElementById('f-brand').value=o.brand;if(o.category)document.getElementById('f-category').value=o.category;if(!document.getElementById('f-condition').value&&o.condition)document.getElementById('f-condition').value=o.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(o.price_low),high=Number(o.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();st.textContent='Erkannt · Gemini-Preisvorschlag (geschützt)'}
 
 async function generateDescription() {
-  if(getProvider()==='gemini' && supabaseClient){await generateDescriptionSecureGemini();return;}
+  const provider = getProvider();
+  if(provider==='gemini' && supabaseClient){await generateDescriptionSecureGemini();return;}
   const key = getApiKey();
+  if (provider==='groq') {
+    // Groq läuft meist über den Supabase-Proxy → Key optional
+    const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status');
+    b.disabled=true; st.textContent='Generiere Beschreibung…';
+    try { await generateDescriptionGroq(key || ''); st.textContent='Fertig mit Groq.'; }
+    catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; }
+    finally { b.disabled=false; }
+    return;
+  }
   if (!key) { openSettings(); return; }
-  if (getProvider()==='groq') { const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status'); b.disabled=true; st.textContent='Generiere Beschreibung…'; try { await generateDescriptionGroq(key); st.textContent='Fertig mit Groq.'; } catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; } finally { b.disabled=false; } return; }
   const style = DESCRIPTION_STYLE;
   const size = document.getElementById('f-size').value.trim();
   const chest = document.getElementById('f-chest').value.trim();
@@ -704,7 +721,7 @@ async function generateDescription() {
   } catch (err) {
     if (/quota|rate limit|429|billing/i.test(err.message)) {
       document.getElementById('generated-description').value = generateLocalDescription();
-      descStatus.textContent = 'Gemini-Kontingent erreicht · lokale Beschreibung erstellt.';
+      descStatus.textContent = 'KI-Kontingent erreicht · lokale Beschreibung erstellt.';
     } else descStatus.textContent = 'Fehler: ' + err.message;
   } finally {
     descBtn.disabled = false;
@@ -786,12 +803,60 @@ function relevantCorrections(brand, category) {
 }
 
 function resetAllData(){createAutoBackup('Vor dem Zurücksetzen');if(!confirm('Wirklich alle gespeicherten Daten löschen? Dazu gehören Inventar, Bilder, Preiswissen, Rechnungen, API-Keys und Entwürfe. Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;localStorage.clear();alert('Alle gespeicherten Daten wurden gelöscht.');location.reload()}
-function getProvider(){return localStorage.getItem(PROVIDER_KEY)||'gemini'}
+function getProvider(){return localStorage.getItem(PROVIDER_KEY)||'groq'}
 function getApiKey(){return getProvider()==='groq'?(localStorage.getItem(GROQKEY_KEY)||''):(localStorage.getItem(APIKEY_KEY)||'')}
-function toggleProviderKey(){const groq=document.getElementById('provider-input').value==='groq';document.getElementById('api-key-input').style.display=groq?'none':'block';document.getElementById('groq-key-input').style.display=groq?'block':'none'}
-function openSettings(){document.getElementById('provider-input').value=getProvider();document.getElementById('api-key-input').value=localStorage.getItem(APIKEY_KEY)||'';document.getElementById('groq-key-input').value=localStorage.getItem(GROQKEY_KEY)||'';toggleProviderKey();document.getElementById('settings-overlay').classList.add('open')}
+function toggleProviderKey(){
+  const sel = document.getElementById('provider-input').value;
+  const isGroq = sel === 'groq';
+  const geminiInput = document.getElementById('api-key-input');
+  const groqInput = document.getElementById('groq-key-input');
+  geminiInput.style.display = isGroq ? 'none' : 'block';
+  groqInput.style.display = isGroq ? 'block' : 'none';
+  // optional hint for Groq
+  const hint = document.getElementById('provider-hint');
+  if (hint) {
+    hint.innerHTML = isGroq 
+      ? 'Groq: Meist kein Key nötig (wird über Supabase-Proxy gehandhabt).'
+      : 'Gemini: Direkt-Key erforderlich (kann derzeit Quota-Probleme haben).';
+  }
+}
+function openSettings(){
+  const p = getProvider();
+  document.getElementById('provider-input').value = p;
+  document.getElementById('api-key-input').value=localStorage.getItem(APIKEY_KEY)||'';
+  document.getElementById('groq-key-input').value=localStorage.getItem(GROQKEY_KEY)||'';
+  toggleProviderKey();
+  document.getElementById('settings-overlay').classList.add('open');
+}
 function closeSettings(){document.getElementById('settings-overlay').classList.remove('open')}
 function saveApiKey(){localStorage.setItem(PROVIDER_KEY,document.getElementById('provider-input').value);localStorage.setItem(APIKEY_KEY,document.getElementById('api-key-input').value.trim());localStorage.setItem(GROQKEY_KEY,document.getElementById('groq-key-input').value.trim());closeSettings()}
+async function testAIConnection() {
+  const provider = document.getElementById('provider-input').value;
+  const key = provider === 'groq' ? document.getElementById('groq-key-input').value.trim() : document.getElementById('api-key-input').value.trim();
+  const statusEl = document.createElement('span');
+  statusEl.style.marginLeft = '10px';
+  statusEl.style.fontSize = '12px';
+  const btn = event.currentTarget || null;
+  try {
+    if (!supabaseClient) throw new Error('Supabase nicht verfügbar');
+    if (provider === 'groq') {
+      const res = await supabaseClient.functions.invoke('ai-proxy', { body: { provider: 'groq', prompt: 'Sag nur "OK"', kind: 'description' } });
+      if (res.error || res.data?.error) throw new Error(res.error?.message || res.data?.error);
+      alert('✅ Groq-Verbindung erfolgreich (Proxy).');
+    } else {
+      if (!key) throw new Error('Kein Gemini-Key eingegeben.');
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + encodeURIComponent(key), {
+        method: 'POST',
+        headers: {'content-type':'application/json'},
+        body: JSON.stringify({ contents: [{ parts: [{ text: 'Sag nur "OK".' }] }] })
+      });
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      alert('✅ Gemini-Verbindung OK (direkt).');
+    }
+  } catch(e) {
+    alert('❌ Verbindungstest fehlgeschlagen: ' + e.message + '\n\nTipp: Für Groq den Proxy verwenden (kein direkter Key nötig, wenn der Proxy-Key im Supabase hinterlegt ist).');
+  }
+}
 
 function fmtEUR(n) {
   if (n === null || n === undefined || isNaN(n)) return '–';
@@ -855,15 +920,23 @@ function parseGeminiJSON(text) {
   try { return JSON.parse(cleaned); } catch (e) {
     const match = cleaned.match(/\{[\s\S]*\}/);
     if (match) return JSON.parse(match[0]);
-    throw new Error('Gemini hat kein gültiges Preis-Ergebnis zurückgegeben.');
+    throw new Error('KI hat kein gültiges Preis-Ergebnis zurückgegeben.');
   }
 }
 
 async function analyzeImage() {
-  if(getProvider()==='gemini' && supabaseClient){try{await analyzeImageSecureGemini()}catch(e){document.getElementById('analyze-status').textContent='Proxy-Fehler: '+e.message}return;}
+  const provider = getProvider();
+  if(provider==='gemini' && supabaseClient){try{await analyzeImageSecureGemini()}catch(e){document.getElementById('analyze-status').textContent='Proxy-Fehler: '+e.message}return;}
+  if (provider==='groq') {
+    const btn = document.getElementById('analyze-btn');
+    btn.disabled = true;
+    try { await analyzeImageGroq(getApiKey() || ''); } 
+    catch(e) { document.getElementById('analyze-status').textContent = 'Groq-Fehler: ' + e.message; } 
+    finally { btn.disabled = false; }
+    return;
+  }
   const key = getApiKey();
   if (!key) { openSettings(); return; }
-  if (getProvider()==='groq') { document.getElementById('analyze-btn').disabled=true; try { await analyzeImageGroq(key); } catch(e) { document.getElementById('analyze-status').textContent='Groq-Fehler: '+e.message; } finally { document.getElementById('analyze-btn').disabled=false; } return; }
   if (!pendingImage) return;
   const statusEl = document.getElementById('analyze-status');
   statusEl.textContent = 'Analysiere Foto…';
@@ -914,7 +987,7 @@ async function analyzeImage() {
     const data = await res.json();
     const candidate = data?.candidates?.[0];
     const text = (candidate?.content?.parts || []).map(b => b.text || '').join('').trim();
-    if (!text) throw new Error(candidate?.finishReason ? ('Keine Antwort von Gemini (' + candidate.finishReason + ').') : 'Keine Antwort von Gemini.');
+    if (!text) throw new Error(candidate?.finishReason ? ('Keine Antwort von KI (' + candidate.finishReason + ').') : 'Keine Antwort von KI.');
     const parsed = parseGeminiJSON(text);
     if (parsed.name) document.getElementById('f-name').value = parsed.name;
     if (parsed.brand) document.getElementById('f-brand').value = parsed.brand;
@@ -941,7 +1014,7 @@ async function analyzeImage() {
   } catch (err) {
     if (/quota|rate limit|429|billing/i.test(err.message)) {
       const fallback = localFallbackEstimate();
-      statusEl.textContent = fallback ? 'Gemini-Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.' : 'Gemini-Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
+      statusEl.textContent = fallback ? 'KI-Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.' : 'KI-Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
     } else statusEl.textContent = 'Fehler: ' + err.message;
   } finally {
     document.getElementById('analyze-btn').disabled = false;
@@ -958,13 +1031,169 @@ async function cloudSignIn(){if(!supabaseClient){cloudMessage('Supabase-Biblioth
 async function cloudSignUp(){if(!supabaseClient)return;const {error}=await supabaseClient.auth.signUp({email:document.getElementById('cloud-email').value.trim(),password:document.getElementById('cloud-password').value});cloudMessage(error?error.message:'Konto erstellt. Falls E-Mail-Bestätigung aktiv ist, bitte E-Mail bestätigen.')}
 async function cloudSignOut(){if(supabaseClient)await supabaseClient.auth.signOut();updateCloudStatus();cloudMessage('Abgemeldet.')}
 async function updateCloudStatus(){const u=await currentCloudUser();const e=document.getElementById('cloud-user-status');if(e)e.textContent=u?('angemeldet: '+u.email):'nicht angemeldet';if(u)refreshAIUsage()}
-function cloudRow(r,userId){return {id:crypto.randomUUID(),user_id:userId,article_no:r.articleNo||null,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',defects:r.defects||'',status:r.status||'geplant',platform:r.platform||'',notes:r.notes||'',ek:r.ek||0,sold_price:r.soldPrice||0,prices:r.prices||[],photos:r.photos||[],main_photo:r.mainPhoto||0,description:r.description||'',size:r.size||'',measurements:{chest:r.chest||'',length:r.length||'',shoulder:r.shoulder||'',sleeve:r.sleeve||''},updated_at:r.updated||new Date().toISOString()}}
+function cloudRow(r, userId) {
+  // respect existing cloud id if provided, otherwise generate
+  const id = (r.id && r.id.includes('-')) ? r.id : (r.cloudId && r.cloudId.includes('-') ? r.cloudId : crypto.randomUUID());
+  return {
+    id: id,
+    user_id: userId,
+    article_no: r.articleNo || null,
+    name: r.name || '',
+    brand: r.brand || '',
+    category: r.category || '',
+    condition: r.condition || '',
+    defects: r.defects || '',
+    status: r.status || 'geplant',
+    platform: r.platform || '',
+    notes: r.notes || '',
+    ek: r.ek || 0,
+    sold_price: r.soldPrice || 0,
+    prices: r.prices || [],
+    photos: r.photos || [],
+    main_photo: r.mainPhoto || 0,
+    description: r.description || '',
+    size: r.size || '',
+    measurements: {
+      chest: r.chest || '',
+      length: r.length || '',
+      shoulder: r.shoulder || '',
+      sleeve: r.sleeve || ''
+    },
+    updated_at: r.updated || new Date().toISOString()
+  };
+}
 async function uploadPhotoToCloud(src,userId,itemId,index){if(!src||src.startsWith('http'))return src;const blob=await (await fetch(src)).blob(),path=`${userId}/${itemId}/${index}.jpg`;const up=await supabaseClient.storage.from('article-images').upload(path,blob,{contentType:'image/jpeg',upsert:true});if(up.error)throw up.error;return path}
 
 async function signedPhotoUrl(path){if(!path)return '';if(path.startsWith('http')){const marker='/storage/v1/object/public/article-images/';const i=path.indexOf(marker);path=i>=0?decodeURIComponent(path.slice(i+marker.length)):path;};const r=await supabaseClient.storage.from('article-images').createSignedUrl(path,3600);return r.data?.signedUrl||''}
-async function syncAllToCloud(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}try{const local=inventoryData();const rows=await Promise.all(local.map(async r=>{const cloudId=r.cloudId||crypto.randomUUID(),photos=await Promise.all((r.photos||[]).map((x,i)=>uploadPhotoToCloud(x,u.id,cloudId,i)));const x=cloudRow({...r,photos},u.id);x.id=cloudId;return x}));const refs=loadCorrections().map(r=>({id:r.cloudId||crypto.randomUUID(),user_id:u.id,name:r.name||'',brand:r.brand||'',category:r.category||'',condition:r.condition||'',low:r.low,high:r.high,image:r.image||'',created_at:r.date||new Date().toISOString()}));let invoices=[];try{invoices=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(e){}invoices=invoices.map(r=>({id:r.cloudId||crypto.randomUUID(),user_id:u.id,invoice_number:r.number||'',invoice_date:r.date||new Date().toISOString().slice(0,10),customer_name:r.customer||'',customer_address:r.address||'',customer_email:r.email||'',amount:r.amount||0,payment_method:r.payment||'',status:r.status||'offen',tax_mode:r.taxMode||'kleinunternehmer'}));const a=await supabaseClient.from('inventory').upsert(rows),b=await supabaseClient.from('price_references').upsert(refs),c=await supabaseClient.from('invoices').upsert(invoices);const error=a.error||b.error||c.error;cloudMessage(error?error.message:(rows.length+' Artikel, '+refs.length+' Preisreferenzen und '+invoices.length+' Rechnungen synchronisiert.'))}catch(e){cloudMessage('Bild-Upload fehlgeschlagen: '+e.message)}}
+async function syncAllToCloud(){
+  const u=await currentCloudUser();
+  if(!u){cloudMessage('Bitte zuerst anmelden.');return}
+  try{
+    let local = inventoryData();
 
-async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}const a=await supabaseClient.from('inventory').select('*').order('updated_at',{ascending:false}),b=await supabaseClient.from('price_references').select('*').order('created_at',{ascending:false}),c=await supabaseClient.from('invoices').select('*').order('created_at',{ascending:false});const error=a.error||b.error||c.error;if(error){cloudMessage(error.message);return}if(a.data?.length){const local=await Promise.all(a.data.map(async r=>({id:r.id,cloudId:r.id,articleNo:r.article_no,name:r.name,brand:r.brand,category:r.category,condition:r.condition,defects:r.defects,status:r.status,platform:r.platform||'',notes:r.notes||'',ek:Number(r.ek)||0,soldPrice:Number(r.sold_price)||0,prices:r.prices||[],photos:await Promise.all((r.photos||[]).map(signedPhotoUrl)),mainPhoto:r.main_photo||0,description:r.description||'',size:r.size||'',chest:r.measurements?.chest||'',length:r.measurements?.length||'',shoulder:r.measurements?.shoulder||'',sleeve:r.measurements?.sleeve||'',updated:r.updated_at})));saveInventoryData(local)}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)localStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
+    // Deduplicate locally by cloudId / id before syncing
+    const seen = new Set();
+    local = local.filter(item => {
+      const key = item.cloudId || item.id;
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    const rows = await Promise.all(local.map(async r => {
+      // Stable cloud ID: reuse existing or generate once
+      let cloudId = r.cloudId;
+      if (!cloudId || typeof cloudId !== 'string' || !cloudId.includes('-')) {
+        cloudId = (r.id && typeof r.id === 'string' && r.id.includes('-')) ? r.id : crypto.randomUUID();
+      }
+      const photos = await Promise.all((r.photos || []).map((x, i) => uploadPhotoToCloud(x, u.id, cloudId, i)));
+      const row = cloudRow({ ...r, photos, cloudId }, u.id);
+      row.id = cloudId;
+      return row;
+    }));
+
+    // Persist stable cloudIds back to local data
+    let changed = false;
+    local.forEach((item, idx) => {
+      const row = rows[idx];
+      if (row && row.id && row.id.includes('-')) {
+        if (!item.cloudId || item.cloudId !== row.id) {
+          item.cloudId = row.id;
+          if (!item.id || !item.id.includes('-')) {
+            item.id = row.id;
+          }
+          changed = true;
+        }
+      }
+    });
+    if (changed) {
+      saveInventoryData(local);
+    }
+
+    const refs = loadCorrections().map(r => ({
+      id: r.cloudId || r.id || crypto.randomUUID(),
+      user_id: u.id,
+      name: r.name || '', brand: r.brand || '', category: r.category || '',
+      condition: r.condition || '', low: r.low, high: r.high, image: r.image || '',
+      created_at: r.date || new Date().toISOString()
+    }));
+
+    let invoices = [];
+    try { invoices = JSON.parse(localStorage.getItem('preis-check-invoices') || '[]'); } catch(e){}
+    invoices = invoices.map(r => ({
+      id: r.cloudId || r.id || crypto.randomUUID(),
+      user_id: u.id,
+      invoice_number: r.number || '',
+      invoice_date: r.date || new Date().toISOString().slice(0,10),
+      customer_name: r.customer || '',
+      customer_address: r.address || '',
+      customer_email: r.email || '',
+      amount: r.amount || 0,
+      payment_method: r.payment || '',
+      status: r.status || 'offen',
+      tax_mode: r.taxMode || 'kleinunternehmer'
+    }));
+
+    // onConflict: 'id' makes sure we UPDATE existing rows instead of inserting duplicates
+    const a = await supabaseClient.from('inventory').upsert(rows, { onConflict: 'id' });
+    const b = await supabaseClient.from('price_references').upsert(refs, { onConflict: 'id' });
+    const c = await supabaseClient.from('invoices').upsert(invoices, { onConflict: 'id' });
+
+    const error = a.error || b.error || c.error;
+    cloudMessage(error ? error.message : 
+      (rows.length + ' Artikel, ' + refs.length + ' Preisreferenzen und ' + invoices.length + ' Rechnungen synchronisiert.'));
+  } catch(e) {
+    cloudMessage('Sync-Fehler: ' + e.message);
+  }
+}
+
+async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudMessage('Bitte zuerst anmelden.');return}const a=await supabaseClient.from('inventory').select('*').order('updated_at',{ascending:false}),b=await supabaseClient.from('price_references').select('*').order('created_at',{ascending:false}),c=await supabaseClient.from('invoices').select('*').order('created_at',{ascending:false});const error=a.error||b.error||c.error;if(error){cloudMessage(error.message);return}if(a.data?.length){
+  const cloudItems = await Promise.all(a.data.map(async r=>({
+    id: r.id,
+    cloudId: r.id,
+    articleNo: r.article_no,
+    name: r.name,
+    brand: r.brand,
+    category: r.category,
+    condition: r.condition,
+    defects: r.defects,
+    status: r.status,
+    platform: r.platform||'',
+    notes: r.notes||'',
+    ek: Number(r.ek)||0,
+    soldPrice: Number(r.sold_price)||0,
+    prices: r.prices || [],
+    photos: await Promise.all((r.photos||[]).map(signedPhotoUrl)),
+    mainPhoto: r.main_photo || 0,
+    description: r.description || '',
+    size: r.size || '',
+    chest: r.measurements?.chest || '',
+    length: r.measurements?.length || '',
+    shoulder: r.measurements?.shoulder || '',
+    sleeve: r.measurements?.sleeve || '',
+    updated: r.updated_at
+  })));
+
+  // Merge: prefer cloud data, avoid duplicates by id/cloudId
+  const existing = inventoryData();
+  const byKey = new Map();
+
+  // first add all cloud items (they are the source of truth)
+  cloudItems.forEach(item => {
+    const key = item.cloudId || item.id;
+    byKey.set(key, item);
+  });
+
+  // add local-only items that don't exist in cloud
+  existing.forEach(item => {
+    const key = item.cloudId || item.id;
+    if (!byKey.has(key)) {
+      byKey.set(key, item);
+    }
+  });
+
+  saveInventoryData(Array.from(byKey.values()));
+}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)localStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
 
 async function restoreCloudSession(){if(supabaseClient){await updateCloudStatus();supabaseClient.auth.onAuthStateChange(()=>updateCloudStatus())}}
 
@@ -985,7 +1214,21 @@ function restoreBackup(id){const b=backupData().find(x=>x.id===id);if(!b||!confi
 function deleteBackup(id){localStorage.setItem(BACKUPS_KEY,JSON.stringify(backupData().filter(x=>x.id!==id)));renderBackups()}
 
 function inventoryData(){try{return JSON.parse(localStorage.getItem(INVENTORY_KEY)||'[]')}catch(e){return[]}}
-function saveInventoryData(list){localStorage.setItem(INVENTORY_KEY,JSON.stringify(list))}
+function saveInventoryData(list){ 
+  // always keep only one copy per cloudId / id
+  const deduped = [];
+  const seen = new Set();
+  list.forEach(item => {
+    const key = item.cloudId || item.id;
+    if (key && !seen.has(key)) {
+      seen.add(key);
+      deduped.push(item);
+    } else if (!key) {
+      deduped.push(item);
+    }
+  });
+  localStorage.setItem(INVENTORY_KEY, JSON.stringify(deduped)); 
+}
 function nextArticleNo(){
   const year = new Date().getFullYear();
   const data = inventoryData();
@@ -1041,7 +1284,36 @@ function renumberArticles(){
 function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{localStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:currentRecord()}))}catch(e){}},500)}
 function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';prices=r.prices||[];pendingImages=r.photos||[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();renderResearchLinks();calculate()}}catch(e){}}
 
-function currentRecord(){return {id:currentItemId||Date.now().toString(36),name:document.getElementById('f-name').value.trim(),brand:document.getElementById('f-brand').value.trim(),category:document.getElementById('f-category').value.trim(),condition:document.getElementById('f-condition').value,defects:document.getElementById('f-defects').value.trim(),ek:parseFloat(document.getElementById('f-ek-total').value)||0,soldPrice:parseFloat(document.getElementById('f-sold-price').value)||0,soldShipping:0,soldFees:0,status:document.getElementById('f-status').value,platform:document.getElementById('f-platform').value,notes:document.getElementById('f-notes').value.trim(),articleNo:document.getElementById('f-article-no').value,size:document.getElementById('f-size').value.trim(),chest:document.getElementById('f-chest').value.trim(),length:document.getElementById('f-length').value.trim(),shoulder:document.getElementById('f-shoulder').value.trim(),sleeve:document.getElementById('f-sleeve').value.trim(),prices,photos:pendingImages.slice(0,5),description:document.getElementById('generated-description').value,updated:new Date().toISOString()}}
+function currentRecord(){
+  const existing = currentItemId ? inventoryData().find(x => x.id === currentItemId) : null;
+  const id = currentItemId || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36));
+  return {
+    id: id,
+    cloudId: existing?.cloudId || id,
+    name: document.getElementById('f-name').value.trim(),
+    brand: document.getElementById('f-brand').value.trim(),
+    category: document.getElementById('f-category').value.trim(),
+    condition: document.getElementById('f-condition').value,
+    defects: document.getElementById('f-defects').value.trim(),
+    ek: parseFloat(document.getElementById('f-ek-total').value)||0,
+    soldPrice: parseFloat(document.getElementById('f-sold-price').value)||0,
+    soldShipping: 0,
+    soldFees: 0,
+    status: document.getElementById('f-status').value,
+    platform: document.getElementById('f-platform').value,
+    notes: document.getElementById('f-notes').value.trim(),
+    articleNo: document.getElementById('f-article-no').value,
+    size: document.getElementById('f-size').value.trim(),
+    chest: document.getElementById('f-chest').value.trim(),
+    length: document.getElementById('f-length').value.trim(),
+    shoulder: document.getElementById('f-shoulder').value.trim(),
+    sleeve: document.getElementById('f-sleeve').value.trim(),
+    prices,
+    photos: pendingImages.slice(0,5),
+    description: document.getElementById('generated-description').value,
+    updated: new Date().toISOString()
+  };
+}
 function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=currentRecord();
   // For new items (no currentItemId) or if the number looks like a placeholder, always get the next sequential number
   const no = (r.articleNo || '').trim();
@@ -1052,7 +1324,13 @@ function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=current
   if(!r.name&&!r.brand&&!r.category){document.getElementById('save-status').textContent='Bitte zuerst Artikeldaten eintragen.';return}
   currentItemId=r.id;
   const l=inventoryData(),i=l.findIndex(x=>x.id===r.id);
-  if(i>=0)l[i]=r;else l.unshift(r);
+  if(i>=0){
+    // preserve existing cloudId when updating
+    if (l[i].cloudId && !r.cloudId) r.cloudId = l[i].cloudId;
+    l[i]=r;
+  } else {
+    l.unshift(r);
+  }
   saveInventoryData(l);
   localStorage.removeItem('preis-check-draft');
   if(supabaseClient)syncAllToCloud();
@@ -1216,5 +1494,5 @@ if(!document.getElementById('f-article-no').value || document.getElementById('f-
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
 </script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db18707a3a3057',t:'MTc4NDQ3ODQ2Ng=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
