@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Preis-Check · Build 2026.07.19</title>
+<title>Preis-Check · Build 2026.07.19b</title>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Archivo+Black&family=Inter:wght@400;500;600&family=IBM+Plex+Mono:wght@500&display=swap');
 
@@ -340,7 +340,7 @@
 <body>
 <div class="sidebar">
   <div class="sidebar-title">Preis-Check</div>
-  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19</div>
+  <div class="version-badge" id="app-version" style="padding:0 10px 10px;">Build 2026.07.19b</div>
   <button class="nav-btn active" data-view="check" onclick="switchView('check',this)">🧮 Preis-Check</button>
   <button class="nav-btn" data-view="cloud" onclick="switchView('cloud',this)">☁️ Cloud-Sync</button>
   <button class="nav-btn" data-view="privacy" onclick="switchView('privacy',this)">🔒 Datenschutz</button>
@@ -831,7 +831,7 @@ const CORRECTIONS_KEY = 'preis-check-corrections';
 const STYLE_KEY = 'preis-check-style-template';
 const INVENTORY_KEY = 'preis-check-inventory';
 const BACKUPS_KEY = 'preis-check-backups';
-const APP_BUILD = '2026.07.19';
+const APP_BUILD = '2026.07.19b';
 const RECENT_KEY = 'preis-check-recent';
 const LEARN_KEY = 'preis-check-name-learn';
 const TITLE_LANG_KEY = 'preis-check-title-lang';
@@ -1397,14 +1397,16 @@ async function groqDirectRequest(key, prompt, images = []) {
   }
 
   const hasImages = Array.isArray(images) && images.length > 0;
-  const system = 'Du hilfst bei deutschem Secondhand-/Vinted-Verkauf. Antworte präzise und im gewünschten Format.';
+  const system = 'Du bist Experte für Secondhand-Mode und Markenerkennung (Logos, Etiketten, Stickereien). Du wertest JEDES gelieferte Foto aus. Antworte präzise, nur JSON wenn gefordert, keine erfundenen Marken.';
 
   let userContent;
   if (hasImages) {
     userContent = [{ type: 'text', text: prompt }];
-    images.slice(0, 5).forEach(src => {
+    images.slice(0, 8).forEach((src, idx) => {
       if (!src) return;
       const url = String(src).startsWith('data:') ? src : ('data:image/jpeg;base64,' + src);
+      // Bildnummer hilft dem Modell, alle Fotos einzubeziehen
+      userContent.push({ type: 'text', text: 'FOTO ' + (idx + 1) + ':' });
       userContent.push({ type: 'image_url', image_url: { url } });
     });
   } else {
@@ -1483,10 +1485,12 @@ async function geminiDirectRequest(key, prompt, images = []) {
   if (!apiKey) throw new Error('Kein Gemini API-Key hinterlegt. Öffne ⚙️ und trage einen Key von aistudio.google.com ein.');
 
   const parts = [{ text: prompt }];
-  (images || []).slice(0, 6).forEach(src => {
+  (images || []).slice(0, 8).forEach((src, idx) => {
     if (!src) return;
     const data = String(src).includes(',') ? src.split(',')[1] : src;
-    if (data) parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
+    if (!data) return;
+    parts.push({ text: 'FOTO ' + (idx + 1) + ':' });
+    parts.push({ inline_data: { mime_type: 'image/jpeg', data } });
   });
 
   const models = ['gemini-2.0-flash', 'gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-flash-latest'];
@@ -1773,7 +1777,7 @@ async function handleFile(file, append = true) {
   const reader = new FileReader();
   reader.onload = async (e) => {
     if (pendingImages.length >= MAX_PHOTOS) return;
-    const resized = await resizeImage(e.target.result, 900, 0.8);
+    const resized = await resizeImage(e.target.result, 1280, 0.88);
     if (append) pendingImages.push(resized);
     else {
       // replace mode handled by handleFiles
@@ -2009,204 +2013,234 @@ function setFieldIfEmpty(id, value) {
   return true;
 }
 
-function buildPhotoAnalyzePrompt(simple = false) {
+
+const KNOWN_BRANDS = [
+  'Ralph Lauren','Polo Ralph Lauren','Fred Perry','Nike','Adidas','Tommy Hilfiger','Lacoste','Carhartt','The North Face',
+  'Patagonia','Columbia','Levi\'s','Levis','Calvin Klein','Hugo Boss','Boss','Gant','Napapijri','Stone Island',
+  'CP Company','Moncler','Canada Goose','Arc\'teryx','Patagonia','Vans','Converse','New Balance','Puma','Reebok',
+  'Under Armour','Champion','Fila','Kappa','Ellesse','Superdry','Jack & Jones','Only','H&M','Zara','Uniqlo',
+  'Cos','Arket','Weekday','Pull&Bear','Bershka','Mango','Massimo Dutti','Peek & Cloppenburg','S.Oliver',
+  'Tom Tailor','Esprit','Street One','C&A','Primark','Diesel','G-Star','Pepe Jeans','Wrangler','Lee',
+  'Dockers','Timberland','Dr. Martens','Clarks','Birkenstock','Crocs','UGG','The Hundreds','Stussy','Supreme',
+  'Palace','Off-White','Balenciaga','Gucci','Prada','Louis Vuitton','Burberry','Versace','Armani','Emporio Armani',
+  'EA7','Diesel','Replay','Mavi','Closed','Acne Studios','Ami','A.P.C.','Sandro','Maje','Sisley','Benetton',
+  'Timberland','Helly Hansen','Fjällräven','Jack Wolfskin','Salomon','Mammut','Regatta','Berghaus','K-Way',
+  'Barbour','Belstaff','Lyle & Scott','Pretty Green','Ben Sherman','Penguin','Original Penguin','Hackett',
+  'Ted Baker','AllSaints','Superdry','Hollister','Abercrombie','American Eagle','Gap','Old Navy','Banana Republic',
+  'J.Crew','Brooks Brothers','Tommy Jeans','Calvin Klein Jeans','DKNY','Michael Kors','Coach','Guess','Scotch & Soda',
+  'Selected Homme','Jack Wolfskin','Mammut','Ortovox','Dynafit','La Sportiva','Merrell','Keen','Sorel',
+  'Carhartt WIP','Dickies','Dickies Workwear','Wrangler','Lee Cooper','Pepe','Hilfiger Denim','RL','POLO'
+];
+
+function normalizeBrandName(s) {
+  const t = String(s || '').trim();
+  if (!t) return '';
+  // match known brands case-insensitive / fuzzy contains
+  const low = t.toLowerCase().replace(/\s+/g, ' ');
+  for (const b of KNOWN_BRANDS) {
+    const bl = b.toLowerCase();
+    if (low === bl || low.includes(bl) || bl.includes(low)) return b;
+  }
+  // clean common OCR noise
+  return t.replace(/\s+/g, ' ').trim();
+}
+
+function buildPhotoAnalyzePrompt(mode = 'full') {
   const condition = document.getElementById('f-condition').value;
   const defects = document.getElementById('f-defects').value.trim();
+  const photoCount = (pendingImages && pendingImages.length) || (pendingImage ? 1 : 0);
   const currentBrand = document.getElementById('f-brand').value.trim();
   const currentCategory = document.getElementById('f-category').value.trim();
-  const photoCount = (pendingImages && pendingImages.length) || (pendingImage ? 1 : 0);
   const refs = relevantCorrections(currentBrand, currentCategory);
   const refsText = refs.length
-    ? ' Berücksichtige folgende vom Nutzer bestätigte, echte Verkaufspreise ähnlicher Artikel als Referenz für die Preisspanne: ' +
-      refs.map(r => {
+    ? ' Preisreferenzen des Nutzers: ' + refs.map(r => {
         const label = [r.brand, r.category].filter(Boolean).join(' ') || r.name || 'Artikel';
         const range = r.low === r.high ? (r.low + '€') : (r.low + '–' + r.high + '€');
-        return '"' + label + '" (Zustand: ' + (r.condition || 'unbekannt') + ') = ' + range;
+        return '"' + label + '" = ' + range;
       }).join('; ') + '.'
     : '';
 
-  const nameRules =
-    'KRITISCH für name: NIEMALS generische Wörter wie "Kleidungsstück", "Artikel", "Item", "Clothing", "Garment", "Piece", "Produkt". ' +
-    'name MUSS konkret und suchbar sein, Format ideal: "[Marke] [Modell/Typ] [Muster/Details]", z.B. "Ralph Lauren Sweater gestreift", "Fred Perry Polo Shirt", "Nike Hoodie Vintage". ' +
-    'category ist der Kleidungstyp (Sweater, Polo, Hoodie, Jacke, Jeans, Crewneck, Quarter Zip, T-Shirt, Cardigan, Hemd, Hose, Rock, Kleid). ' +
-    'pattern_or_details: z.B. gestreift, kariert, Logo-Stick, Twin Tip, Halfzip – nur wenn sichtbar. ';
-
-  if (simple) {
-    return 'Analysiere das Kleidungsstück auf den ' + photoCount + ' Foto(s) genau. ' +
-      'Lies Markenlogos/Etiketten und bestimme den konkreten Typ. ' + nameRules +
-      'Antworte AUSSCHLIESSLICH als JSON mit Keys: ' +
-      '{"name":"","brand":"","category":"","pattern_or_details":"","color":"","condition":"","size":"","chest_cm":null,"length_cm":null,"shoulder_cm":null,"sleeve_cm":null,"material":"","fit":"","gender":"","measurements_note":"","price_low":0,"price_high":0}. ' +
-      'name = Marke + konkreter Typ + optionales Muster (NIE nur Kleidungsstück). ' +
-      'condition nur: Zufriedenstellend|Gut|Sehr Gut|Neu|Neu mit Etikett. ' +
-      'size nur wenn Etikett lesbar. cm-Felder nur wenn Maßband/Maße sichtbar, sonst null. Preise in Euro als Zahlen. brand_confidence 0-1. Kein Markdown.';
+  if (mode === 'brand') {
+    return 'Du bekommst ' + photoCount + ' nummerierte Fotos (FOTO 1, FOTO 2, …) DESSELBEN Kleidungsstücks. ' +
+      'AUFGABE: Durchsuche JEDES Foto nach Markenlogos, gestickten Logos, Print-Logos, Hals-Etiketten, Pflegeetiketten, Hangtags. ' +
+      'Lies sichtbaren Text (OCR). Bestimme die Marke so genau wie möglich. ' +
+      'Häufige Marken: Ralph Lauren, Polo Ralph Lauren, Fred Perry, Nike, Adidas, Tommy Hilfiger, Lacoste, Carhartt, The North Face, Levi\'s, Calvin Klein, Hugo Boss, Gant, Stone Island, CP Company, Champion, Vans, New Balance, Puma, Barbour, Lyle & Scott, u.a. ' +
+      'Antworte NUR als JSON ohne Markdown: ' +
+      '{"brand":"","brand_confidence":0.0,"brand_evidence":"","logo_found":false,"label_text":"","category_guess":"","name_guess":"","color_guess":"","photos_used":[]} ' +
+      'Regeln: brand leer lassen wenn wirklich unklar (nicht raten). brand_confidence 0-1. ' +
+      'brand_evidence kurz: wo gesehen (z.B. "gestickter Player auf Brust Foto 1", "Halslabel Foto 2"). ' +
+      'photos_used: Liste der Foto-Nummern die du ausgewertet hast. category_guess konkreter Typ (Sweater/Polo/Hoodie/Jacke/…). ' +
+      'name_guess = Marke + Typ + Muster falls klar. NIEMALS "Kleidungsstück" oder "Artikel" als Name.';
   }
 
-  return 'Du analysierst ' + photoCount + ' Foto(s) desselben Secondhand-Kleidungsstücks für Vinted/eBay DE. ' +
-    'Nutze ALLE Bilder (Etikett, Logo, Vorderseite, Rückseite, Details, Maßband). ' +
-    'Erkenne Marke am Logo/Etikett so genau wie möglich (z.B. Ralph Lauren, Fred Perry, Nike, Adidas, Tommy Hilfiger, Lacoste, Carhartt, The North Face). ' +
-    (condition ? ('Zustand laut Nutzer: ' + condition + '. ') : '') +
-    (defects ? ('Zusätzliche Mängel-/Zustandsinfos: ' + defects + '. ') : '') +
-    refsText + ' ' + nameRules +
-    'Antworte NUR mit einem JSON-Objekt (kein Fließtext, keine Code-Fences, kein Thinking) mit den Feldern: ' +
-    'name (konkreter Produktname inkl. Marke und Typ, z.B. "Ralph Lauren Sweater gestreift" – NIE "Kleidungsstück"), ' +
-    'brand (erkannte Marke, leer nur wenn wirklich unklar), ' +
-    'category (konkreter Typ: Sweater, Polo, Hoodie, Jacke, Jeans, Crewneck, Quarter Zip, T-Shirt, Cardigan, Hemd, Hose, Rock, Kleid – NIE "Kleidungsstück"), ' +
-    'pattern_or_details (Muster/Details falls sichtbar: gestreift, kariert, Logo, Stick, Twin Tip, Halfzip, leer sonst), ' +
-    'color (Hauptfarbe auf Deutsch), ' +
-    'condition (falls vom Nutzer nicht vorgegeben: GENAU einer von "Zufriedenstellend", "Gut", "Sehr Gut", "Neu", "Neu mit Etikett"), ' +
-    'size (Größe vom Etikett falls lesbar, sonst ""), ' +
-    'chest_cm, length_cm, shoulder_cm, sleeve_cm (Zahlen in cm nur wenn sichtbar/maßband, sonst null), ' +
-    'material, fit, gender (nur wenn erkennbar, sonst ""), ' +
-    'measurements_note (kurz woher Maße/Größe), ' +
-    'price_low, price_high (Euro-Zahlen für DE-Wiederverkauf). ' +
-    'Wenn Marke ODER Typ erkennbar ist, name und category MÜSSEN konkret sein. Maße/Größe nie erfinden.';
+  const knownBrandHint = currentBrand ? (' Bereits vermutete Marke (prüfen/bestätigen): ' + currentBrand + '.') : '';
+  return 'Du bekommst ' + photoCount + ' nummerierte Fotos (FOTO 1…FOTO n) desselben Secondhand-Teils für Vinted DE. ' +
+    'WICHTIG: Werte ALLE Fotos aus – Logos, Etiketten, Farbe, Schnitt, Muster, Größe, Maße, Material. ' +
+    knownBrandHint + ' ' +
+    (condition ? ('Nutzer-Zustand: ' + condition + '. ') : '') +
+    (defects ? ('Mängel-Hinweis: ' + defects + '. ') : '') +
+    refsText + ' ' +
+    'Antworte NUR als JSON ohne Markdown mit exakt diesen Feldern: ' +
+    '{"brand":"","brand_confidence":0.0,"brand_evidence":"","name":"","category":"","pattern_or_details":"","color":"","condition":"","size":"","chest_cm":null,"length_cm":null,"shoulder_cm":null,"sleeve_cm":null,"material":"","fit":"","gender":"","measurements_note":"","price_low":0,"price_high":0,"photos_used":[],"label_text":""}. ' +
+    'name = konkret suchbar, Format "[Marke] [Typ] [Muster/Detail]", z.B. "Ralph Lauren Sweater gestreift", "Fred Perry Polo Shirt". ' +
+    'VERBOTEN als name/category: Kleidungsstück, Artikel, Item, Clothing, Garment, Piece, Produkt. ' +
+    'category = Typ (Sweater, Polo, Hoodie, Jacke, Jeans, Crewneck, Quarter Zip, T-Shirt, Cardigan, Hemd, Hose, Rock, Kleid). ' +
+    'color Hauptfarbe auf Deutsch. condition einer von: Zufriedenstellend|Gut|Sehr Gut|Neu|Neu mit Etikett. ' +
+    'size nur wenn Etikett lesbar. cm-Felder nur wenn Maßband/Maße klar sichtbar, sonst null. ' +
+    'price_low/price_high realistische DE-Wiederverkaufspreise als Zahlen. ' +
+    'photos_used = alle Foto-Nummern die du wirklich genutzt hast (sollte möglichst alle sein). ' +
+    'Marke aus Logo/Etikett lesen – nicht erfinden. Wenn Marke auf irgendeinem Foto klar ist, brand setzen.';
 }
 
-function pickFirstString(...vals) {
-  for (const v of vals) {
-    if (v == null) continue;
-    const s = String(v).trim();
-    if (s && !/^(null|undefined|n\/?a|unknown|-)$/i.test(s)) return s;
-  }
-  return '';
+function mergeAnalysisResults(base, extra) {
+  const out = Object.assign({}, base || {}, extra || {});
+  // prefer non-empty strings
+  const prefer = (a, b) => {
+    const as = String(a || '').trim();
+    const bs = String(b || '').trim();
+    if (bs && (!as || isGenericItemName(as) || isGenericCategory(as))) return b;
+    if (as) return a;
+    return b || a || '';
+  };
+  out.brand = normalizeBrandName(prefer(base?.brand, extra?.brand) || prefer(extra?.brand, base?.brand));
+  out.name = prefer(base?.name, extra?.name);
+  out.category = prefer(base?.category, extra?.category);
+  out.color = prefer(base?.color, extra?.color);
+  out.size = prefer(base?.size, extra?.size);
+  out.material = prefer(base?.material, extra?.material);
+  out.fit = prefer(base?.fit, extra?.fit);
+  out.gender = prefer(base?.gender, extra?.gender);
+  out.pattern_or_details = prefer(base?.pattern_or_details, extra?.pattern_or_details);
+  out.condition = prefer(base?.condition, extra?.condition);
+  out.brand_evidence = prefer(base?.brand_evidence, extra?.brand_evidence);
+  out.label_text = prefer(base?.label_text, extra?.label_text);
+  const bc1 = Number(base?.brand_confidence);
+  const bc2 = Number(extra?.brand_confidence);
+  out.brand_confidence = Math.max(
+    Number.isFinite(bc1) ? (bc1 > 1 ? bc1 / 100 : bc1) : 0,
+    Number.isFinite(bc2) ? (bc2 > 1 ? bc2 / 100 : bc2) : 0
+  );
+  // numeric measures: take first finite
+  ['chest_cm','length_cm','shoulder_cm','sleeve_cm','price_low','price_high'].forEach(k => {
+    const v1 = Number(base?.[k]); const v2 = Number(extra?.[k]);
+    if (Number.isFinite(v1) && v1 > 0) out[k] = v1;
+    else if (Number.isFinite(v2) && v2 > 0) out[k] = v2;
+  });
+  // brand pass guesses
+  if (!out.brand) out.brand = normalizeBrandName(prefer(base?.brand, extra?.brand));
+  if (!out.category) out.category = prefer(base?.category_guess, extra?.category_guess);
+  if (!out.name) out.name = prefer(base?.name_guess, extra?.name_guess);
+  if (!out.color) out.color = prefer(base?.color_guess, extra?.color_guess);
+  const pu = []
+    .concat(Array.isArray(base?.photos_used) ? base.photos_used : [])
+    .concat(Array.isArray(extra?.photos_used) ? extra.photos_used : []);
+  out.photos_used = [...new Set(pu.map(String))];
+  return out;
 }
 
-function isGenericItemName(s) {
-  const t = String(s || '').trim().toLowerCase();
-  if (!t) return true;
-  return /^(kleidungs[-\s]?stück|kleidung|artikel|item|clothing|garment|piece|produkt|ware|textil|bekleidung|clothes|apparel|unknown|unbekannt)s?$/i.test(t)
-    || /^(ein |das |the )?(kleidungsstück|artikel|item)$/i.test(t);
-}
-
-function isGenericCategory(s) {
-  const t = String(s || '').trim().toLowerCase();
-  if (!t) return true;
-  return isGenericItemName(t) || /^(mode|fashion|style|outfit)$/i.test(t);
-}
-
-function buildSmartItemName(brand, category, pattern, rawName) {
-  const b = String(brand || '').trim();
-  let c = String(category || '').trim();
-  const p = String(pattern || '').trim();
-  let n = String(rawName || '').trim();
-
-  // generische Namen verwerfen
-  if (isGenericItemName(n)) n = '';
-  if (isGenericCategory(c)) c = '';
-
-  // wenn raw name schon gut ist und Marke enthält: behalten, aber generische Reste entfernen
-  if (n) {
-    n = n.replace(/\b(kleidungsstück|kleidung|artikel|item|clothing|garment)\b/gi, '').replace(/\s+/g, ' ').trim();
-  }
-
-  // Name aus Marke + Kategorie + Muster bauen, wenn raw unbrauchbar
-  if (!n || isGenericItemName(n) || (b && n.toLowerCase() === b.toLowerCase())) {
-    const parts = [];
-    if (b) parts.push(b);
-    if (c && (!b || !c.toLowerCase().includes(b.toLowerCase()))) parts.push(c);
-    else if (c) parts.push(c);
-    if (p && !parts.join(' ').toLowerCase().includes(p.toLowerCase())) parts.push(p);
-    n = parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
-  } else {
-    // Marke voranstellen, falls fehlt
-    if (b && !n.toLowerCase().includes(b.toLowerCase())) n = (b + ' ' + n).trim();
-    // Muster anhängen, falls sinnvoll und noch nicht drin
-    if (p && p.length <= 24 && !n.toLowerCase().includes(p.toLowerCase())) {
-      n = (n + ' ' + p).trim();
-    }
-  }
-
-  // letzte Absicherung
-  if (!n || isGenericItemName(n)) {
-    n = [b, c || 'Sweater'].filter(Boolean).join(' ') || 'Marken Sweater';
-  }
-  return n.replace(/\s+/g, ' ').trim();
-}
-
-function applyPhotoAnalysis(parsed) {
+function applyPhotoAnalysis(parsed, opts = {}) {
+  const overwrite = opts.overwrite !== false; // default: AI fills fields on analysis
   parsed = parsed || {};
-  // verschachtelte Antworten abfangen
   if (parsed.data && typeof parsed.data === 'object') parsed = { ...parsed, ...parsed.data };
   if (parsed.result && typeof parsed.result === 'object') parsed = { ...parsed, ...parsed.result };
   if (parsed.item && typeof parsed.item === 'object') parsed = { ...parsed, ...parsed.item };
 
-  const condition = document.getElementById('f-condition').value;
-  let brand = pickFirstString(parsed.brand, parsed.marque, parsed.manufacturer, parsed.make);
-  let category = pickFirstString(parsed.category, parsed.type, parsed.garment, parsed.item_type, parsed.product_type, parsed.subcategory);
-  let pattern = pickFirstString(parsed.pattern_or_details, parsed.pattern, parsed.details, parsed.style_details, parsed.print, parsed.motif);
-  let rawName = pickFirstString(parsed.name, parsed.product_name, parsed.title, parsed.article, parsed.product);
-
-  // generische category aus raw name ziehen, falls category leer/generic
-  if (isGenericCategory(category) && rawName && !isGenericItemName(rawName)) {
-    // z.B. "Ralph Lauren Sweater gestreift" -> category Sweater gestreift ohne Marke
-    let maybe = rawName;
-    if (brand && maybe.toLowerCase().startsWith(brand.toLowerCase())) {
-      maybe = maybe.slice(brand.length).trim();
+  const userCondition = document.getElementById('f-condition').value;
+  let brand = normalizeBrandName(pickFirstString(parsed.brand, parsed.marque, parsed.manufacturer, parsed.make, parsed.brand_name));
+  // try extract brand from label_text / evidence
+  if (!brand && parsed.label_text) {
+    const lt = String(parsed.label_text);
+    for (const b of KNOWN_BRANDS) {
+      if (lt.toLowerCase().includes(b.toLowerCase())) { brand = b; break; }
     }
+  }
+  if (!brand && parsed.brand_evidence) {
+    const ev = String(parsed.brand_evidence);
+    for (const b of KNOWN_BRANDS) {
+      if (ev.toLowerCase().includes(b.toLowerCase())) { brand = b; break; }
+    }
+  }
+  // try from name
+  if (!brand && parsed.name) {
+    for (const b of KNOWN_BRANDS) {
+      if (String(parsed.name).toLowerCase().includes(b.toLowerCase())) { brand = b; break; }
+    }
+  }
+
+  let category = pickFirstString(parsed.category, parsed.category_guess, parsed.type, parsed.garment, parsed.item_type, parsed.product_type, parsed.subcategory);
+  let pattern = pickFirstString(parsed.pattern_or_details, parsed.pattern, parsed.details, parsed.style_details, parsed.print, parsed.motif);
+  let rawName = pickFirstString(parsed.name, parsed.name_guess, parsed.product_name, parsed.title, parsed.article, parsed.product);
+
+  if (isGenericCategory(category) && rawName && !isGenericItemName(rawName)) {
+    let maybe = rawName;
+    if (brand && maybe.toLowerCase().startsWith(brand.toLowerCase())) maybe = maybe.slice(brand.length).trim();
     if (maybe && !isGenericItemName(maybe)) category = maybe;
   }
 
-  const name = buildSmartItemName(brand, category, pattern, rawName);
-  // category sauber halten: eher Kurztyp
+  let name = buildSmartItemName(brand, category, pattern, rawName);
   if (isGenericCategory(category) && name) {
     let c2 = name;
     if (brand && c2.toLowerCase().startsWith(brand.toLowerCase())) c2 = c2.slice(brand.length).trim();
-    // nimm erstes 1-3 Wörter als category-ish
     category = c2.split(/\s+/).slice(0, 3).join(' ') || category;
   }
   if (isGenericCategory(category)) category = '';
 
-  const color = pickFirstString(parsed.color, parsed.colour, parsed.farbe, parsed.main_color);
+  const color = pickFirstString(parsed.color, parsed.color_guess, parsed.colour, parsed.farbe, parsed.main_color);
 
-  // Felder setzen – generische Werte nie übernehmen
-  if (brand) document.getElementById('f-brand').value = brand;
-  if (category && !isGenericCategory(category)) document.getElementById('f-category').value = category;
+  const setVal = (id, val, {allowEmpty=false, force=overwrite} = {}) => {
+    const el = document.getElementById(id); if (!el || val == null) return false;
+    const v = String(val).trim();
+    if (!v && !allowEmpty) return false;
+    if (!force && String(el.value || '').trim()) return false;
+    el.value = v;
+    return true;
+  };
 
-  // Artikelname: immer smart bauen / generisches "Kleidungsstück" überschreiben
+  if (brand) setVal('f-brand', brand, { force: true });
+  if (category && !isGenericCategory(category)) setVal('f-category', category, { force: true });
+
   const bNow = document.getElementById('f-brand').value.trim() || brand;
   const cNow = document.getElementById('f-category').value.trim() || category;
-  const smart = buildSmartItemName(bNow, cNow, pattern, name);
-  const prevName = document.getElementById('f-name').value.trim();
-  if (!prevName || isGenericItemName(prevName) || (smart && !isGenericItemName(smart))) {
-    // Nur überschreiben wenn bisher leer/generisch ODER smart konkreter ist
-    if (!prevName || isGenericItemName(prevName) || (smart.length > prevName.length && !isGenericItemName(smart))) {
-      document.getElementById('f-name').value = smart;
-    }
-  }
-  // absolute Notbremse
-  if (isGenericItemName(document.getElementById('f-name').value)) {
-    document.getElementById('f-name').value = buildSmartItemName(bNow, cNow || 'Sweater', pattern, '');
-  }
+  name = buildSmartItemName(bNow, cNow, pattern, name);
+  if (!name || isGenericItemName(name)) name = buildSmartItemName(bNow, cNow || 'Sweater', pattern, '');
+  // learned overrides
+  try {
+    const learned = typeof applyLearnedName === 'function' ? applyLearnedName(bNow, cNow, name) : name;
+    if (learned) name = learned;
+  } catch (e) {}
+  setVal('f-name', name, { force: true });
 
-  if (color && document.getElementById('f-color') && !document.getElementById('f-color').value) {
-    document.getElementById('f-color').value = color;
-  }
+  if (color) setVal('f-color', color, { force: overwrite });
+
   const validConditions = ['Zufriedenstellend', 'Gut', 'Sehr Gut', 'Neu', 'Neu mit Etikett'];
   const cond = pickFirstString(parsed.condition, parsed.zustand);
-  if (!condition && cond && validConditions.includes(cond)) {
-    document.getElementById('f-condition').value = cond;
-  }
+  if (!userCondition && cond && validConditions.includes(cond)) setVal('f-condition', cond, { force: true });
 
-  // Größe & Maße – nur leere Felder befüllen, nichts erfinden
+  // size & measures: fill empties OR overwrite if force and AI has value
   const filled = [];
   const size = normalizeSizeTag(parsed.size || parsed.size_tag || parsed.tag_size || parsed.groesse || '');
-  if (setFieldIfEmpty('f-size', size)) filled.push('Größe ' + size);
-
+  if (size && (overwrite || !document.getElementById('f-size').value.trim())) {
+    document.getElementById('f-size').value = size; filled.push('Größe ' + size);
+  }
   const chest = normalizeMeasureValue(parsed.chest_cm ?? parsed.chest ?? parsed.pit_to_pit ?? parsed.bust ?? '');
   const length = normalizeMeasureValue(parsed.length_cm ?? parsed.length ?? parsed.total_length ?? '');
   const shoulder = normalizeMeasureValue(parsed.shoulder_cm ?? parsed.shoulder ?? '');
   const sleeve = normalizeMeasureValue(parsed.sleeve_cm ?? parsed.sleeve ?? parsed.arm_length ?? '');
-  if (setFieldIfEmpty('f-chest', chest)) filled.push('Achsel ' + chest);
-  if (setFieldIfEmpty('f-length', length)) filled.push('Länge ' + length);
-  if (setFieldIfEmpty('f-shoulder', shoulder)) filled.push('Schulter ' + shoulder);
-  if (setFieldIfEmpty('f-sleeve', sleeve)) filled.push('Ärmel ' + sleeve);
+  if (chest && (overwrite || !document.getElementById('f-chest').value.trim())) { document.getElementById('f-chest').value = chest; filled.push('Achsel ' + chest); }
+  if (length && (overwrite || !document.getElementById('f-length').value.trim())) { document.getElementById('f-length').value = length; filled.push('Länge ' + length); }
+  if (shoulder && (overwrite || !document.getElementById('f-shoulder').value.trim())) { document.getElementById('f-shoulder').value = shoulder; filled.push('Schulter ' + shoulder); }
+  if (sleeve && (overwrite || !document.getElementById('f-sleeve').value.trim())) { document.getElementById('f-sleeve').value = sleeve; filled.push('Ärmel ' + sleeve); }
 
   const material = pickFirstString(parsed.material, parsed.fabric, parsed.stoff);
   const fit = pickFirstString(parsed.fit, parsed.passform, parsed.silhouette);
   const gender = pickFirstString(parsed.gender, parsed.geschlecht);
-  if (setFieldIfEmpty('f-material', material)) filled.push('Material');
-  if (setFieldIfEmpty('f-fit', fit)) filled.push('Passform');
-  if (gender && document.getElementById('f-gender') && !document.getElementById('f-gender').value) {
+  if (material && document.getElementById('f-material') && (overwrite || !document.getElementById('f-material').value.trim())) {
+    document.getElementById('f-material').value = material; filled.push('Material');
+  }
+  if (fit && document.getElementById('f-fit') && (overwrite || !document.getElementById('f-fit').value.trim())) {
+    document.getElementById('f-fit').value = fit; filled.push('Passform');
+  }
+  if (gender && document.getElementById('f-gender') && (overwrite || !document.getElementById('f-gender').value)) {
     const opts = Array.from(document.getElementById('f-gender').options).map(o => o.value);
     const match = opts.find(o => o && o.toLowerCase() === gender.toLowerCase()) ||
       opts.find(o => o && gender.toLowerCase().includes(o.toLowerCase()));
@@ -2216,13 +2250,16 @@ function applyPhotoAnalysis(parsed) {
   const mStatus = document.getElementById('measures-ai-status');
   if (mStatus) {
     const note = parsed.measurements_note ? String(parsed.measurements_note).trim() : '';
-    if (filled.length) {
-      mStatus.textContent = '✨ KI erkannt: ' + filled.join(' · ') + (note ? ' (' + note + ')' : '');
+    const evidence = parsed.brand_evidence ? String(parsed.brand_evidence).trim() : '';
+    const bits = [];
+    if (brand) bits.push('Marke ' + brand);
+    if (filled.length) bits.push(...filled);
+    if (evidence) bits.push(evidence);
+    if (bits.length) {
+      mStatus.textContent = '✨ KI: ' + bits.join(' · ') + (note ? ' (' + note + ')' : '');
       mStatus.style.color = 'var(--success-text)';
     } else {
-      mStatus.textContent = note
-        ? 'Maße/Größe nicht sicher erkennbar (' + note + '). Bitte manuell eintragen oder Maßband-Foto hinzufügen.'
-        : 'Maße/Größe nicht sicher auf den Fotos erkennbar – Felder leer gelassen.';
+      mStatus.textContent = note || 'Maße/Größe nicht sicher erkennbar – manuell prüfen.';
       mStatus.style.color = 'var(--ink-muted)';
     }
   }
@@ -2235,22 +2272,39 @@ function applyPhotoAnalysis(parsed) {
   renderPrices();
   calculate();
   renderResearchLinks();
+
+  const conf = typeof scoreAnalysisConfidence === 'function'
+    ? scoreAnalysisConfidence(parsed, brand, category, name)
+    : null;
+  if (typeof showConfidence === 'function' && conf) showConfidence(conf);
+
   return {
-    low,
-    high,
-    filledMeasures: filled,
+    low, high, filledMeasures: filled,
     name: document.getElementById('f-name').value.trim(),
     brand: document.getElementById('f-brand').value.trim(),
-    category: document.getElementById('f-category').value.trim()
+    category: document.getElementById('f-category').value.trim(),
+    brand_confidence: parsed.brand_confidence,
+    photos_used: parsed.photos_used || []
   };
 }
 
-async function requestPhotoAnalysisRaw(key, provider, imgs, simple = false) {
-  const prompt = buildPhotoAnalyzePrompt(simple);
-  // Bei vielen Bildern: zuerst mit max 4, sonst zu groß/instabil
-  const useImgs = imgs.slice(0, simple ? 2 : 5);
+async function requestPhotoAnalysisRaw(key, provider, imgs, mode = 'full') {
+  const prompt = buildPhotoAnalyzePrompt(mode);
+  // Alle Fotos mitschicken (bis 8)
+  const useImgs = (imgs || []).slice(0, 8);
+  if (!useImgs.length) throw new Error('Keine Bilder für Analyse.');
   if (provider === 'groq') return await groqDirectRequest(key, prompt, useImgs);
   return await geminiDirectRequest(key, prompt, useImgs);
+}
+
+async function analyzeSinglePass(key, provider, imgs, mode, silent) {
+  if (!silent) {
+    const statusEl = document.getElementById('analyze-status');
+    const labels = { brand: '1/2 Marke/Logo auf allen Fotos…', full: '2/2 Details/Maße/Preis…', simple: 'Fallback-Analyse…' };
+    if (statusEl) statusEl.textContent = labels[mode] || 'Analysiere…';
+  }
+  const raw = await requestPhotoAnalysisRaw(key, provider, imgs, mode);
+  return parseGeminiJSON(raw);
 }
 
 async function runPhotoAnalysis({ silent = false } = {}) {
@@ -2263,59 +2317,98 @@ async function runPhotoAnalysis({ silent = false } = {}) {
   const imgs = (pendingImages.length ? pendingImages : [pendingImage]).filter(Boolean);
   const providerLabel = provider === 'groq' ? 'Groq' : 'Gemini';
   let lastErr = null;
-  const attempts = [
-    { simple: false, label: 'Analyse' },
-    { simple: true, label: 'Einfache Analyse' }
-  ];
 
-  for (const attempt of attempts) {
+  // optional quality hint
+  try {
+    if (typeof estimatePhotoQuality === 'function') {
+      const q = await estimatePhotoQuality();
+      if (typeof showPhotoQuality === 'function') showPhotoQuality(q);
+    }
+  } catch (e) {}
+
+  try {
+    // Pass 1: brand/logo across ALL photos
+    let brandPass = null;
     try {
-      if (!silent) {
-        const statusEl = document.getElementById('analyze-status');
-        if (statusEl) statusEl.textContent = attempt.label + ' mit ' + providerLabel + '…';
-      }
-      const raw = await requestPhotoAnalysisRaw(key, provider, imgs, attempt.simple);
-      const parsed = parseGeminiJSON(raw);
-      const result = applyPhotoAnalysis(parsed);
+      brandPass = await analyzeSinglePass(key, provider, imgs, 'brand', silent);
+    } catch (e1) {
+      lastErr = e1;
+      brandPass = null;
+    }
 
-      // Wenn immer noch keine Artikeldaten: nächster Versuch
-      if (!result.name && !result.brand && !result.category) {
-        lastErr = new Error('KI hat keine Marke/Artikel erkannt.');
-        continue;
-      }
+    // Pass 2: full details with all photos
+    let fullPass = null;
+    try {
+      fullPass = await analyzeSinglePass(key, provider, imgs, 'full', silent);
+    } catch (e2) {
+      lastErr = e2;
+      fullPass = null;
+    }
 
-      const photoN = imgs.length;
-      let msg = 'Erkannt aus ' + photoN + ' Foto' + (photoN === 1 ? '' : 's') + ' · ' + providerLabel;
-      if (result.brand || result.category || result.name) {
-        msg += ' · ' + [result.brand, result.category || result.name].filter(Boolean).join(' ');
+    // Optional fallback simple full if both weak
+    let merged = mergeAnalysisResults(brandPass || {}, fullPass || {});
+    const weakBrand = !merged.brand || Number(merged.brand_confidence || 0) < 0.45;
+    const weakName = !merged.name || isGenericItemName(merged.name);
+    if ((weakBrand || weakName) && imgs.length) {
+      try {
+        // retry full on first 3 sharpest-ish (all still)
+        const retry = await analyzeSinglePass(key, provider, imgs, 'full', silent);
+        merged = mergeAnalysisResults(merged, retry);
+      } catch (e3) {
+        lastErr = e3;
       }
-      if (!isNaN(result.low) && !isNaN(result.high)) msg += ' · Preis ' + fmtEUR(result.low) + '–' + fmtEUR(result.high);
-      if (result.filledMeasures && result.filledMeasures.length) msg += ' · ' + result.filledMeasures.join(', ');
-      else msg += ' · Maße/Größe bitte prüfen';
+    }
+
+    // If still almost empty, throw
+    if (!merged.brand && !merged.name && !merged.category && !merged.category_guess) {
+      throw lastErr || new Error('KI hat keine Marke/Artikel aus den Fotos gelesen. Schärferes Etikett/Logo-Foto hinzufügen.');
+    }
+
+    const result = applyPhotoAnalysis(merged, { overwrite: true });
+
+    // learning layer
+    try {
+      let name = document.getElementById('f-name')?.value.trim() || '';
+      const brand = document.getElementById('f-brand')?.value.trim() || '';
+      const category = document.getElementById('f-category')?.value.trim() || '';
+      if (typeof applyLearnedName === 'function') {
+        const learned = applyLearnedName(brand, category, name);
+        if (learned && learned !== name) {
+          document.getElementById('f-name').value = learned;
+          name = learned;
+        }
+      }
+      window._lastAiName = document.getElementById('f-name').value.trim();
+    } catch (e) {}
+
+    const photoN = imgs.length;
+    const used = Array.isArray(merged.photos_used) && merged.photos_used.length ? merged.photos_used.length : photoN;
+    let msg = 'Erkannt aus ' + photoN + ' Foto' + (photoN === 1 ? '' : 's') + ' (' + used + ' ausgewertet) · ' + providerLabel;
+    if (result.brand) msg += ' · ' + result.brand;
+    if (result.category || result.name) msg += ' · ' + (result.category || result.name);
+    if (!isNaN(result.low) && !isNaN(result.high) && result.low > 0) msg += ' · Preis ' + fmtEUR(result.low) + '–' + fmtEUR(result.high);
+    if (result.filledMeasures && result.filledMeasures.length) msg += ' · ' + result.filledMeasures.join(', ');
+    if (!silent) {
+      const statusEl = document.getElementById('analyze-status');
+      if (statusEl) statusEl.textContent = msg;
+    }
+    if (typeof clearRequiredMarks === 'function') clearRequiredMarks();
+    if (typeof updateStepProgress === 'function') updateStepProgress();
+    return { ok: true, ...result, provider: providerLabel, message: msg, merged };
+  } catch (err) {
+    if (/quota|rate limit|429|billing/i.test(err.message || '')) {
+      const fallback = typeof localFallbackEstimate === 'function' ? localFallbackEstimate() : false;
+      const msg = fallback
+        ? 'Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.'
+        : 'Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
       if (!silent) {
         const statusEl = document.getElementById('analyze-status');
         if (statusEl) statusEl.textContent = msg;
       }
-      return { ok: true, ...result, provider: providerLabel, message: msg };
-    } catch (err) {
-      lastErr = err;
-      if (/quota|rate limit|429|billing/i.test(err.message || '')) {
-        const fallback = localFallbackEstimate();
-        const msg = fallback
-          ? 'Kontingent erreicht · lokaler Vorschlag aus deinen Korrekturen.'
-          : 'Kontingent erreicht. Bitte später erneut versuchen oder Preise manuell eintragen.';
-        if (!silent) {
-          const statusEl = document.getElementById('analyze-status');
-          if (statusEl) statusEl.textContent = msg;
-        }
-        return { ok: !!fallback, error: err.message, fallback: true, message: msg };
-      }
-      // API-Key-Fehler nicht mit Retry verschleiern
-      if (/API-Key ungültig|Kein API-Key/i.test(err.message || '')) throw err;
-      // sonst zweiten Versuch machen
+      return { ok: !!fallback, error: err.message, fallback: true, message: msg };
     }
+    throw err;
   }
-  throw lastErr || new Error('Foto-Analyse fehlgeschlagen.');
 }
 
 async function analyzeImage() {
@@ -2327,10 +2420,12 @@ async function analyzeImage() {
   }
   const statusEl = document.getElementById('analyze-status');
   const provider = getProvider();
-  statusEl.textContent = 'Analysiere Foto mit ' + (provider === 'groq' ? 'Groq' : 'Gemini') + '…';
+  const n = (pendingImages && pendingImages.length) || 1;
+  statusEl.textContent = 'Analysiere ' + n + ' Foto' + (n === 1 ? '' : 's') + ' mit ' + (provider === 'groq' ? 'Groq' : 'Gemini') + ' (Marke + Details)…';
   setListingButtonsDisabled(true);
   try {
-    await runPhotoAnalysis({ silent: false });
+    const res = await runPhotoAnalysis({ silent: false });
+    if (res && res.message) statusEl.textContent = res.message;
   } catch (err) {
     statusEl.textContent = 'Fehler: ' + (err.message || 'unbekannt');
   } finally {
@@ -3673,40 +3768,8 @@ if(_buildTitlePrompt){
   };
 }
 
-// 2-stage analysis wrapper
-const _runPhotoAnalysis = runPhotoAnalysis;
-runPhotoAnalysis = async function(opts={}){
-  const silent=!!opts.silent;
-  // photo quality first
-  const q=await estimatePhotoQuality();
-  showPhotoQuality(q);
-  if(!silent && q && q.ok===false){
-    // non-blocking warning
-  }
-  // stage 1: identity only if we will call underlying with enhanced prompts already in buildPhotoAnalyzePrompt
-  const beforeName=document.getElementById('f-name')?.value.trim()||'';
-  const result=await _runPhotoAnalysis(opts);
-  // apply learning
-  let name=document.getElementById('f-name')?.value.trim()||'';
-  const brand=document.getElementById('f-brand')?.value.trim()||'';
-  const category=document.getElementById('f-category')?.value.trim()||'';
-  const learned=applyLearnedName(brand, category, name);
-  if(learned && learned!==name){
-    document.getElementById('f-name').value=learned;
-    name=learned;
-  }
-  // confidence
-  const conf=scoreAnalysisConfidence(result || {}, brand, category, name);
-  showConfidence(conf);
-  // if generic name still, try stage2 lightweight rename from brand+category
-  if(isGenericItemName(document.getElementById('f-name').value)){
-    document.getElementById('f-name').value=buildSmartItemName(brand, category||'Sweater', '', '');
-  }
-  // track manual correction later on blur
-  window._lastAiName=document.getElementById('f-name').value.trim();
-  clearRequiredMarks();
-  return result;
-};
+// keep runPhotoAnalysis as multi-pass implementation (brand pass + full pass).
+// learning/confidence already handled inside runPhotoAnalysis.
 
 // learn when user edits name after AI
 document.addEventListener('change', (e)=>{
@@ -3951,5 +4014,5 @@ try{
 updateStepProgress();
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbeaf96edc3ec7',t:'MTc4NDQ4NzA5MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1dbeffedb983ec7',t:'MTc4NDQ4NzI5NQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
