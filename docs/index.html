@@ -534,9 +534,11 @@ Era/Style: y2k vintage retro streetwear
   <div class="modal">
     <h3>Google Gemini API-Key</h3>
     <p>
-      Kostenlos erhältlich auf aistudio.google.com (Google-Konto, kein Zahlungsmittel nötig).
-      Wird nur lokal in deinem Browser gespeichert (localStorage) und nur direkt an
-      Supabase wird für Cloud-Sync verwendet. Für eine vollständig geschützte KI-Nutzung müssen die API-Keys als Supabase Secrets in der Edge Function hinterlegt werden. Bei Groq wird der Proxy bereits verwendet; Gemini sollte nach dem Einrichten ebenfalls über den Proxy laufen.
+      Kostenlos erhältlich auf aistudio.google.com (Google) bzw. console.groq.com (Groq).
+      Keys werden nur lokal im Browser gespeichert.
+      <b style="color:var(--gold);">Wichtig:</b> Der Supabase-AI-Proxy verlangt eine Anmeldung unter Cloud-Sync.
+      Ohne Login nutzt Groq automatisch deinen lokalen Groq-Key direkt.
+      Gemini geht ohne Login über den lokalen Gemini-Key (Direktaufruf).
     </p>
     <label class="field-label" style="margin-top:8px;">KI-Anbieter</label>
     <select id="provider-input" onchange="toggleProviderKey()"><option value="gemini">Gemini</option><option value="groq">Groq · Llama 4 Scout</option></select>
@@ -985,7 +987,7 @@ async function generateTitle() {
     return;
   }
 
-  if (getProvider() === 'gemini' && supabaseClient) {
+  if (getProvider() === 'gemini' && supabaseClient && await currentCloudUser().catch(() => null)) {
     await generateTitleSecureGemini();
     return;
   }
@@ -1006,7 +1008,7 @@ async function generateTitle() {
       if (!title) throw new Error('Leerer Titel');
       setGeneratedTitle(title, 'Fertig mit Groq · ' + countWords(title) + ' Wörter.');
     } catch (e) {
-      setGeneratedTitle(generateLocalTitle(), 'Groq-Fehler · lokaler Titel erstellt.');
+      setGeneratedTitle(generateLocalTitle(), 'Groq-Fehler: ' + (e.message || 'unbekannt') + ' · lokaler Titel erstellt.');
     } finally {
       b.disabled = false;
     }
@@ -1050,10 +1052,117 @@ async function generateTitle() {
   }
 }
 
-async function groqRequest(key, prompt, images=[], kind='photo') {
+async function readFunctionError(error) {
+  // supabase-js versteckt bei non-2xx oft den Body – hier holen wir die echte Meldung raus
+  try {
+    if (error?.context) {
+      const res = error.context;
+      if (typeof res.json === 'function') {
+        const body = await res.json();
+        if (body?.error) return String(body.error);
+        if (body?.message) return String(body.message);
+        return JSON.stringify(body);
+      }
+      if (typeof res.text === 'function') {
+        const t = await res.text();
+        if (t) return t;
+      }
+    }
+  } catch (e) { /* ignore parse errors */ }
+  return error?.message || 'AI-Proxy-Fehler';
+}
+
+function isAuthProxyError(msg) {
+  return /anmeldung|login|auth|unauthorized|401|jwt|session|nicht angemeldet|sign in/i.test(String(msg || ''));
+}
+
+async function groqDirectRequest(key, prompt, images = []) {
+  if (!key) throw new Error('Kein Groq API-Key hinterlegt. Bitte unter ⚙️ Gemini API-Key → Groq eintragen.');
+  // Vision nur, wenn Bilder da sind – sonst reines Textmodell
+  const hasImages = Array.isArray(images) && images.length > 0;
+  const model = hasImages ? 'meta-llama/llama-4-scout-17b-16e-instruct' : 'llama-3.3-70b-versatile';
+
+  const userContent = [];
+  userContent.push({ type: 'text', text: prompt });
+  if (hasImages) {
+    images.slice(0, 4).forEach(src => {
+      if (!src) return;
+      const url = String(src).startsWith('data:') ? src : ('data:image/jpeg;base64,' + src);
+      userContent.push({ type: 'image_url', image_url: { url } });
+    });
+  }
+
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'authorization': 'Bearer ' + key
+    },
+    body: JSON.stringify({
+      model,
+      temperature: 0.4,
+      messages: [
+        { role: 'system', content: 'Du hilfst bei deutschem Secondhand-/Vinted-Verkauf. Antworte präzise und im gewünschten Format.' },
+        { role: 'user', content: hasImages ? userContent : prompt }
+      ]
+    })
+  });
+
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const msg = body?.error?.message || body?.message || ('Groq HTTP ' + res.status);
+    if (res.status === 401) throw new Error('Groq API-Key ungültig. Bitte Key prüfen (console.groq.com).');
+    if (res.status === 429) throw new Error('Groq Rate-Limit erreicht. Bitte kurz warten.');
+    throw new Error(msg);
+  }
+  const text = body?.choices?.[0]?.message?.content || '';
+  if (!text) throw new Error('Leere Antwort von Groq.');
+  return text;
+}
+
+async function groqRequest(key, prompt, images = [], kind = 'photo') {
+  // 1) Wenn angemeldet: zuerst geschützter Proxy
+  const user = await currentCloudUser().catch(() => null);
+  if (supabaseClient && user) {
+    try {
+      const { data, error } = await supabaseClient.functions.invoke('ai-proxy', {
+        body: { provider: 'groq', prompt, images, kind }
+      });
+      if (!error && data?.text && !data?.error) return data.text;
+      const detail = error ? await readFunctionError(error) : (data?.error || 'Leere Proxy-Antwort');
+      // Jeder Proxy-Fehler → falls lokaler Key da ist, direkt versuchen
+      if (key) {
+        try { return await groqDirectRequest(key, prompt, images); }
+        catch (e2) { throw new Error('Proxy: ' + detail + ' · Direkt: ' + e2.message); }
+      }
+      if (isAuthProxyError(detail)) {
+        throw new Error(detail + ' · Bitte anmelden oder lokalen Groq-Key unter ⚙️ speichern.');
+      }
+      throw new Error(detail);
+    } catch (e) {
+      if (e.message && e.message.startsWith('Proxy:')) throw e;
+      if (key) {
+        try { return await groqDirectRequest(key, prompt, images); }
+        catch (e2) { throw new Error((e.message || 'Proxy-Fehler') + ' · Direkt: ' + e2.message); }
+      }
+      throw e;
+    }
+  }
+
+  // 2) Ohne Login: direkt mit lokalem Groq-Key
+  return await groqDirectRequest(key, prompt, images);
+}
+
+async function secureGeminiRequest(prompt, images = [], kind = 'photo') {
   if (!supabaseClient) throw new Error('Supabase ist nicht geladen.');
-  const { data, error } = await supabaseClient.functions.invoke('ai-proxy', { body: { provider: 'groq', prompt, images, kind } });
-  if (error) throw new Error(error.message || 'AI-Proxy-Fehler');
+  const user = await currentCloudUser().catch(() => null);
+  if (!user) {
+    throw new Error('Für den geschützten Gemini-Proxy bitte unter Cloud-Sync anmelden – oder auf Groq umstellen bzw. Gemini-Direktkey nutzen.');
+  }
+  const { data, error } = await supabaseClient.functions.invoke('ai-proxy', {
+    body: { provider: 'gemini', prompt, images, kind }
+  });
+  if (error) throw new Error(await readFunctionError(error));
   if (data?.error) throw new Error(data.error);
   return data?.text || '';
 }
@@ -1069,17 +1178,16 @@ async function generateDescriptionGroq(key){
 }
 async function analyzeImageGroq(key){const status=document.getElementById('analyze-status');status.textContent='Analysiere Bild mit Groq…';const condition=document.getElementById('f-condition').value,defects=document.getElementById('f-defects').value.trim();const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. '+(condition?'Zustand: '+condition+'.':'')+(defects?' Mängel: '+defects+'.':'')+' Antworte ausschließlich als JSON mit name, brand, category, color (Hauptfarbe auf Deutsch), condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const raw=await groqRequest(key,prompt,pendingImages,'photo');const parsed=parseGeminiJSON(raw);if(parsed.name)document.getElementById('f-name').value=parsed.name;if(parsed.brand)document.getElementById('f-brand').value=parsed.brand;if(parsed.category)document.getElementById('f-category').value=parsed.category;if(parsed.color&&document.getElementById('f-color')&&!document.getElementById('f-color').value)document.getElementById('f-color').value=parsed.color;if(!condition&&parsed.condition)document.getElementById('f-condition').value=parsed.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(parsed.price_low),high=Number(parsed.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();status.textContent=`Erkannt · Groq-Preisvorschlag: ${fmtEUR(low)}–${fmtEUR(high)}`}
 
-async function secureGeminiRequest(prompt, images=[], kind='photo'){if(!supabaseClient)throw new Error('Supabase ist nicht geladen.');const {data,error}=await supabaseClient.functions.invoke('ai-proxy',{body:{provider:'gemini',prompt,images,kind}});if(error)throw new Error(error.message||'AI-Proxy-Fehler');if(data?.error)throw new Error(data.error);return data?.text||''}
 async function generateDescriptionSecureGemini(){
  const st=document.getElementById('desc-status'),b=document.getElementById('desc-btn');st.textContent='Generiere Beschreibung…';b.disabled=true;
  try{const f=getDescriptionFields();const item=[f.name,f.brand,f.category].filter(Boolean).join(', ');const prompt='Erstelle eine deutsche Vinted-Verkaufsbeschreibung für '+item+'. Verwende die Abschnitte ZUSTAND, GRÖẞE, optional MAẞE, DETAILS und VERSAND. Farbe: '+(f.color||'nicht angegeben')+'. Zustand: '+(f.condition||'nicht angegeben')+'. Mängel: '+(f.defects||'keine angegeben')+'. Größe: '+(f.size||'nicht angegeben')+'. Era/Style: '+(f.era||'y2k vintage retro streetwear')+'. Maße nur verwenden, wenn vorhanden. '+DETAILS_STYLE_RULES+' Erfinde keine Fakten. Antworte ausschließlich als JSON mit description und extra_hashtags (20 bis 30 passende Hashtags ohne #).';const raw=await secureGeminiRequest(prompt,pendingImages,'description');const o=parseGeminiJSON(raw),tags=[...FIXED_DESCRIPTION_TAGS,...(o.extra_hashtags||[]).map(x=>String(x).toLowerCase().replace(/[^a-z0-9äöüß]/g,'')).filter(x=>x&&!FIXED_DESCRIPTION_TAGS.includes(x))];document.getElementById('generated-description').value=normalizeGeneratedDescription(o.description||'')+'\n\n'+tags.map(t=>'#'+t).join(' ');st.textContent='Fertig mit Gemini (geschützt).'}catch(e){document.getElementById('generated-description').value=generateLocalDescription();st.textContent='Proxy-Fehler · lokale Beschreibung erstellt.'}finally{b.disabled=false}}
 async function analyzeImageSecureGemini(){const st=document.getElementById('analyze-status');st.textContent='Analysiere Bild (geschützt)…';const prompt='Analysiere dieses Kleidungsstück für einen deutschen Wiederverkauf. Antworte ausschließlich als JSON mit name, brand, category, color (Hauptfarbe auf Deutsch), condition (Zufriedenstellend, Gut, Sehr Gut, Neu oder Neu mit Etikett), price_low und price_high als Zahlen. Keine erfundenen exakten Details.';const o=parseGeminiJSON(await secureGeminiRequest(prompt,pendingImages,'photo'));if(o.name)document.getElementById('f-name').value=o.name;if(o.brand)document.getElementById('f-brand').value=o.brand;if(o.category)document.getElementById('f-category').value=o.category;if(o.color&&document.getElementById('f-color')&&!document.getElementById('f-color').value)document.getElementById('f-color').value=o.color;if(!document.getElementById('f-condition').value&&o.condition)document.getElementById('f-condition').value=o.condition;prices=prices.filter(p=>p.source!=='ai');const low=Number(o.price_low),high=Number(o.price_high);if(low>0)prices.push({value:low,source:'ai'});if(high>0&&high!==low)prices.push({value:high,source:'ai'});renderPrices();calculate();renderResearchLinks();st.textContent='Erkannt · Gemini-Preisvorschlag (geschützt)'}
 
 async function generateDescription() {
-  if(getProvider()==='gemini' && supabaseClient){await generateDescriptionSecureGemini();return;}
+  if(getProvider()==='gemini' && supabaseClient && await currentCloudUser().catch(()=>null)){await generateDescriptionSecureGemini();return;}
   const key = getApiKey();
   if (!key) { openSettings(); return; }
-  if (getProvider()==='groq') { const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status'); b.disabled=true; st.textContent='Generiere Beschreibung…'; try { await generateDescriptionGroq(key); st.textContent='Fertig mit Groq.'; } catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; } finally { b.disabled=false; } return; }
+  if (getProvider()==='groq') { const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status'); b.disabled=true; st.textContent='Generiere Beschreibung…'; try { await generateDescriptionGroq(key); st.textContent='Fertig mit Groq.'; } catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler: '+(e.message||'unbekannt')+' · lokale Beschreibung erstellt.'; } finally { b.disabled=false; } return; }
   const style = DESCRIPTION_STYLE;
   const f = getDescriptionFields();
   const descStatus = document.getElementById('desc-status');
@@ -1299,7 +1407,7 @@ function parseGeminiJSON(text) {
 }
 
 async function analyzeImage() {
-  if(getProvider()==='gemini' && supabaseClient){try{await analyzeImageSecureGemini()}catch(e){document.getElementById('analyze-status').textContent='Proxy-Fehler: '+e.message}return;}
+  if(getProvider()==='gemini' && supabaseClient && await currentCloudUser().catch(()=>null)){try{await analyzeImageSecureGemini()}catch(e){document.getElementById('analyze-status').textContent='Proxy-Fehler: '+e.message}return;}
   const key = getApiKey();
   if (!key) { openSettings(); return; }
   if (getProvider()==='groq') { document.getElementById('analyze-btn').disabled=true; try { await analyzeImageGroq(key); } catch(e) { document.getElementById('analyze-status').textContent='Groq-Fehler: '+e.message; } finally { document.getElementById('analyze-btn').disabled=false; } return; }
@@ -1594,5 +1702,5 @@ if (titleInput) {
 }
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db9670dbe25fc5',t:'MTc4NDQ4MzYyNw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db7dd94d369967',t:'MTc4NDQ4MjYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script><script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db9bf658ef5fc5',t:'MTc4NDQ4Mzg1Mw=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
