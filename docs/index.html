@@ -166,34 +166,7 @@
   .modal-actions { display: flex; gap: 8px; margin-top: 14px; }
 
   body { padding-left: 250px; }
-  .sidebar { 
-    position: fixed; 
-    left: 18px; 
-    top: 24px; 
-    width: 210px; 
-    background: var(--card); 
-    border: 1px solid var(--card-border); 
-    border-radius: 10px; 
-    padding: 12px; 
-    z-index: 99999 !important; 
-  }
-  .wrap { 
-    position: relative; 
-    z-index: 1; 
-  }
-
-  /* ULTIMATE FIX: ALLES MUSS ANKLICKBAR SEIN */
-  button, .nav-btn, .danger-btn, .ghost, .primary, .settings-btn,
-  .dropzone, .research-btn, input, select, textarea, #current-model-badge {
-    pointer-events: auto !important;
-    cursor: pointer !important;
-    z-index: 999999 !important;
-  }
-  .panel, .wrap, .dropzone {
-    pointer-events: auto !important;
-  }
-
-
+  .sidebar { position: fixed; left: 18px; top: 24px; width: 210px; background: var(--card); border: 1px solid var(--card-border); border-radius: 10px; padding: 12px; z-index: 5; }
   .sidebar-title { font-family:'Archivo Black',sans-serif; font-size:16px; padding:8px 10px 14px; }
   .nav-btn { width:100%; text-align:left; border:1px solid transparent; background:transparent; color:var(--ink-muted); padding:10px; border-radius:7px; cursor:pointer; font-size:13px; margin:2px 0; }
   .nav-btn:hover,.nav-btn.active { color:var(--ink); background:#161613; border-color:var(--card-border); }
@@ -469,6 +442,18 @@
       <span class="label">Marge in %</span>
       <span class="value" id="res-margin-pct">–</span>
     </div>
+    <div class="stat-line">
+      <span class="label">⚡ Schnellverkaufs-Preis (−10 %)</span>
+      <span class="value" id="quick-price">–</span>
+    </div>
+    <div class="stat-line">
+      <span class="label">Normaler Marktpreis</span>
+      <span class="value" id="normal-price">–</span>
+    </div>
+    <div class="stat-line">
+      <span class="label">Max. EK für deine Zielmarge</span>
+      <span class="value" id="max-buy-price">–</span>
+    </div>
     <div class="verdict empty" id="verdict" style="margin-top:12px;">
       <div class="verdict-label">Noch nicht genug Daten</div>
       <div class="verdict-sub">Trag Marktpreis(e) und Einkaufspreis ein.</div>
@@ -526,6 +511,10 @@
     </div>
     <div class="inventory-toolbar"><input id="inventory-search" placeholder="🔎 Marke oder Artikel suchen" oninput="renderInventory()"><select id="inventory-filter" onchange="renderInventory()"><option value="">Alle Status</option><option>geplant</option><option>eingestellt</option><option>verkauft</option><option>nicht verkauft</option><option>archiviert</option></select><select id="inventory-sort" onchange="renderInventory()"><option value="new">Neueste zuerst</option><option value="profit">Gewinn absteigend</option><option value="name">Name A–Z</option></select><select id="tax-period"><option value="all">Steuerzeitraum: alle</option><option value="year">Dieses Jahr</option><option value="month">Dieser Monat</option></select></div><div id="storage-info" class="muted" style="font-size:11px;margin-bottom:10px;"></div>
     <div id="inventory-list" class="inventory-grid"></div>
+    <h2 style="margin-top:18px;">Automatische Backups</h2>
+    <div style="font-size:12px;color:var(--ink-muted);margin-bottom:8px;">Vor dem Speichern, Löschen oder Zurücksetzen wird automatisch gesichert (maximal 5 Backups, lokal im Browser).</div>
+    <div id="backup-info" class="muted" style="font-size:12px;margin-bottom:8px;"></div>
+    <div id="backup-list" class="inventory-grid"></div>
   </div>
 </div>
 
@@ -552,8 +541,8 @@
   <div class="modal">
     <h3>KI-Einstellungen</h3>
     <p>
-      <b>Empfehlung:</b> Groq (Llama) ist derzeit am <b>schnellsten</b> und hat die <b>meisten Free-Uses</b> (~14.400 Requests/Tag mit llama-3.1-8b-instant).<br>
-      Der Default ist jetzt das Modell mit den höchsten Rate-Limits.<br><br>
+      <b>Empfehlung:</b> Groq (Llama) ist derzeit am zuverlässigsten und nutzt den Supabase-Proxy.<br>
+      Gemini kann aktuell Quota-/Rate-Limit-Probleme haben.<br><br>
       <b>Groq-Key holen:</b> Kostenlos auf <a href="https://console.groq.com/keys" target="_blank">console.groq.com/keys</a><br>
       <b>Gemini-Key (optional):</b> <a href="https://aistudio.google.com/app/apikey" target="_blank">aistudio.google.com</a>
     </p>
@@ -592,9 +581,9 @@ const MODEL_KEY = 'preis-check-ai-model';
 
 const AI_MODELS = {
   groq: [
-    { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B' },
+    { id: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (empfohlen)' },
     { id: 'llama-3.1-70b-versatile', label: 'Llama 3.1 70B' },
-    { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (schnell + meisten Free-Uses)' },
+    { id: 'llama-3.1-8b-instant', label: 'Llama 3.1 8B (schnell)' },
     { id: 'mixtral-8x7b-32768', label: 'Mixtral 8x7B' },
     { id: 'gemma2-9b-it', label: 'Gemma 2 9B' }
   ],
@@ -614,11 +603,34 @@ let currentItemId = null;
 let libraryImage = null;
 let prices = [];
 
-function loadStyleTemplate() {
-  return localStorage.getItem(STYLE_KEY) || '';
+// Robuster Speicher-Fallback: Damit die Seite auch dann voll bedienbar bleibt,
+// wenn localStorage blockiert ist (Sandbox-Iframe / Datei-Vorschau ohne
+// allow-same-origin, Privater Modus, blockierte Cookies). In dem Fall wird
+// ersatzweise im Arbeitsspeicher gespeichert (gilt bis zum Schließen der Seite).
+const safeStorage = (function () {
+  const mem = Object.create(null);
+  let usable = false;
+  try {
+    const t = '__pc_test__';
+    localStorage.setItem(t, '1');
+    localStorage.removeItem(t);
+    usable = true;
+  } catch (e) { usable = false; }
+  return {
+    getItem(k)    { if (usable) { try { return localStorage.getItem(k); } catch (e) {} } return (k in mem) ? mem[k] : null; },
+    setItem(k, v) { if (usable) { try { localStorage.setItem(k, v); return; } catch (e) {} } mem[k] = String(v); },
+    removeItem(k) { if (usable) { try { localStorage.removeItem(k); return; } catch (e) {} } delete mem[k]; },
+    clear()       { if (usable) { try { localStorage.clear(); return; } catch (e) {} } for (const k in mem) delete mem[k]; }
+  };
+})();
+function uuid() {
+  try { if (window.crypto && typeof crypto.randomUUID === 'function') return uuid(); } catch (e) {}
+  return Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
 }
-function saveStyleTemplate() {
-  localStorage.setItem(STYLE_KEY, document.getElementById('style-template').value);
+
+
+function loadStyleTemplate() {
+  return safeStorage.getItem(STYLE_KEY) || '';
 }
 
 const DESCRIPTION_STYLE = `✅ ZUSTAND
@@ -732,9 +744,15 @@ async function generateDescription() {
     // Groq läuft meist über den Supabase-Proxy → Key optional
     const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status');
     b.disabled=true; st.textContent='Generiere Beschreibung…';
-    try { await generateDescriptionGroq(key || ''); } catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; } finally { if (!st.textContent || st.textContent.includes('Fehler')) st.textContent = 'Fertig.'; }
-    catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; }
-    finally { b.disabled=false; }
+    try {
+      await generateDescriptionGroq(key || '');
+      st.textContent='Fertig.';
+    } catch(e) {
+      document.getElementById('generated-description').value=generateLocalDescription();
+      st.textContent='Groq-Fehler · lokale Beschreibung erstellt.';
+    } finally {
+      b.disabled=false;
+    }
     return;
   }
   if (!key) { openSettings(); return; }
@@ -820,22 +838,36 @@ async function generateDescription() {
 function copyDescription() {
   const ta = document.getElementById('generated-description');
   if (!ta.value) return;
-  ta.select();
-  document.execCommand('copy');
   const descStatus = document.getElementById('desc-status');
-  descStatus.textContent = 'In Zwischenablage kopiert.';
+  let ok = false;
+  try {
+    ta.focus();
+    ta.select();
+    ta.setSelectionRange(0, ta.value.length);
+    ok = document.execCommand('copy');
+  } catch (e) { ok = false; }
+  if (!ok && navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(ta.value).then(() => {
+      descStatus.textContent = 'In Zwischenablage kopiert.';
+    }).catch(() => {
+      ta.focus(); ta.select();
+      descStatus.textContent = 'Kopieren blockiert – Text ist markiert, bitte Strg+C drücken.';
+    });
+    return;
+  }
+  descStatus.textContent = ok ? 'In Zwischenablage kopiert.' : 'Kopieren blockiert – Text ist markiert, bitte Strg+C drücken.';
 }
 
 function loadCorrections() {
   try {
-    return JSON.parse(localStorage.getItem(CORRECTIONS_KEY) || '[]');
+    return JSON.parse(safeStorage.getItem(CORRECTIONS_KEY) || '[]');
   } catch (e) {
     return [];
   }
 }
 
 function saveCorrections(list) {
-  localStorage.setItem(CORRECTIONS_KEY, JSON.stringify(list));
+  safeStorage.setItem(CORRECTIONS_KEY, JSON.stringify(list));
 }
 
 function saveCorrection() {
@@ -891,17 +923,16 @@ function relevantCorrections(brand, category) {
   }).slice(0, 5);
 }
 
-function resetAllData(){createAutoBackup('Vor dem Zurücksetzen');if(!confirm('Wirklich alle gespeicherten Daten löschen? Dazu gehören Inventar, Bilder, Preiswissen, Rechnungen, API-Keys und Entwürfe. Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;localStorage.clear();alert('Alle gespeicherten Daten wurden gelöscht.');location.reload()}
-function getProvider(){return localStorage.getItem(PROVIDER_KEY)||'groq'}
-function getApiKey(){return getProvider()==='groq'?(localStorage.getItem(GROQKEY_KEY)||''):(localStorage.getItem(APIKEY_KEY)||'')}
+function resetAllData(){createAutoBackup('Vor dem Zurücksetzen');if(!confirm('Wirklich alle gespeicherten Daten löschen? Dazu gehören Inventar, Bilder, Preiswissen, Rechnungen, API-Keys und Entwürfe. Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;safeStorage.clear();alert('Alle gespeicherten Daten wurden gelöscht.');location.reload()}
+function getProvider(){return safeStorage.getItem(PROVIDER_KEY)||'groq'}
+function getApiKey(){return getProvider()==='groq'?(safeStorage.getItem(GROQKEY_KEY)||''):(safeStorage.getItem(APIKEY_KEY)||'')}
 function getModel(){
-  const saved = localStorage.getItem(MODEL_KEY);
+  const saved = safeStorage.getItem(MODEL_KEY);
   if (saved) return saved;
-  // Modell mit den MEISTEN free uses (höchste Rate-Limits / Quota) als Default → schnellste & großzügigste Antworten
-  // llama-3.1-8b-instant hat auf Groq Free-Tier ~14.400 Requests/Tag (vs. ~1.000 beim 70B)
-  return getProvider()==='groq' ? 'llama-3.1-8b-instant' : 'gemini-1.5-flash';
+  // Modell mit den meisten Tokens / Parametern als Default (beste Qualität / meisten Uses)
+  return getProvider()==='groq' ? 'llama-3.3-70b-versatile' : 'gemini-1.5-pro';
 }
-function getSelectedModel(){ return localStorage.getItem(MODEL_KEY) || getModel(); }
+function getSelectedModel(){ return safeStorage.getItem(MODEL_KEY) || getModel(); }
 
 function getModelLabel(modelId) {
   for (const prov in AI_MODELS) {
@@ -922,9 +953,6 @@ function updateCurrentModelBadge() {
   badge.title = `Aktuelles Modell: ${label} (${provider}) — klicken zum Ändern`;
 }
 
-function refreshModelUI() {
-  updateCurrentModelBadge();
-}
 function toggleProviderKey(){
   const provider = document.getElementById('provider-input').value;
   const isGroq = provider === 'groq';
@@ -979,21 +1007,21 @@ function updateModelSelect(provider) {
 function openSettings(){
   const p = getProvider();
   document.getElementById('provider-input').value = p;
-  document.getElementById('api-key-input').value=localStorage.getItem(APIKEY_KEY)||'';
-  document.getElementById('groq-key-input').value=localStorage.getItem(GROQKEY_KEY)||'';
+  document.getElementById('api-key-input').value=safeStorage.getItem(APIKEY_KEY)||'';
+  document.getElementById('groq-key-input').value=safeStorage.getItem(GROQKEY_KEY)||'';
   toggleProviderKey();
   document.getElementById('settings-overlay').classList.add('open');
 }
 function closeSettings(){document.getElementById('settings-overlay').classList.remove('open')}
 function saveApiKey(){
   const prov = document.getElementById('provider-input').value;
-  localStorage.setItem(PROVIDER_KEY, prov);
-  localStorage.setItem(APIKEY_KEY, document.getElementById('api-key-input').value.trim());
-  localStorage.setItem(GROQKEY_KEY, document.getElementById('groq-key-input').value.trim());
+  safeStorage.setItem(PROVIDER_KEY, prov);
+  safeStorage.setItem(APIKEY_KEY, document.getElementById('api-key-input').value.trim());
+  safeStorage.setItem(GROQKEY_KEY, document.getElementById('groq-key-input').value.trim());
   
   const modelSel = document.getElementById('model-input');
   if (modelSel) {
-    localStorage.setItem(MODEL_KEY, modelSel.value);
+    safeStorage.setItem(MODEL_KEY, modelSel.value);
   }
   closeSettings();
   updateCurrentModelBadge();
@@ -1216,7 +1244,7 @@ async function cloudSignOut(){if(supabaseClient)await supabaseClient.auth.signOu
 async function updateCloudStatus(){const u=await currentCloudUser();const e=document.getElementById('cloud-user-status');if(e)e.textContent=u?('angemeldet: '+u.email):'nicht angemeldet';if(u)refreshAIUsage()}
 function cloudRow(r, userId) {
   // respect existing cloud id if provided, otherwise generate
-  const id = (r.id && r.id.includes('-')) ? r.id : (r.cloudId && r.cloudId.includes('-') ? r.cloudId : crypto.randomUUID());
+  const id = (r.id && r.id.includes('-')) ? r.id : (r.cloudId && r.cloudId.includes('-') ? r.cloudId : uuid());
   return {
     id: id,
     user_id: userId,
@@ -1267,7 +1295,7 @@ async function syncAllToCloud(){
       // Stable cloud ID: reuse existing or generate once
       let cloudId = r.cloudId;
       if (!cloudId || typeof cloudId !== 'string' || !cloudId.includes('-')) {
-        cloudId = (r.id && typeof r.id === 'string' && r.id.includes('-')) ? r.id : crypto.randomUUID();
+        cloudId = (r.id && typeof r.id === 'string' && r.id.includes('-')) ? r.id : uuid();
       }
       const photos = await Promise.all((r.photos || []).map((x, i) => uploadPhotoToCloud(x, u.id, cloudId, i)));
       const row = cloudRow({ ...r, photos, cloudId }, u.id);
@@ -1294,7 +1322,7 @@ async function syncAllToCloud(){
     }
 
     const refs = loadCorrections().map(r => ({
-      id: r.cloudId || r.id || crypto.randomUUID(),
+      id: r.cloudId || r.id || uuid(),
       user_id: u.id,
       name: r.name || '', brand: r.brand || '', category: r.category || '',
       condition: r.condition || '', low: r.low, high: r.high, image: r.image || '',
@@ -1302,9 +1330,9 @@ async function syncAllToCloud(){
     }));
 
     let invoices = [];
-    try { invoices = JSON.parse(localStorage.getItem('preis-check-invoices') || '[]'); } catch(e){}
+    try { invoices = JSON.parse(safeStorage.getItem('preis-check-invoices') || '[]'); } catch(e){}
     invoices = invoices.map(r => ({
-      id: r.cloudId || r.id || crypto.randomUUID(),
+      id: r.cloudId || r.id || uuid(),
       user_id: u.id,
       invoice_number: r.number || '',
       invoice_date: r.date || new Date().toISOString().slice(0,10),
@@ -1376,11 +1404,11 @@ async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudM
   });
 
   saveInventoryData(Array.from(byKey.values()));
-}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)localStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
+}if(b.data)saveCorrections(b.data.map(r=>({id:r.id,cloudId:r.id,name:r.name,brand:r.brand,category:r.category,condition:r.condition,low:Number(r.low),high:Number(r.high),image:r.image||'',date:r.created_at})));if(c.data)safeStorage.setItem('preis-check-invoices',JSON.stringify(c.data.map(r=>({id:r.id,cloudId:r.id,number:r.invoice_number,date:r.invoice_date,customer:r.customer_name,address:r.customer_address,email:r.customer_email,amount:Number(r.amount)||0,payment:r.payment_method||'',status:r.status||'offen',taxMode:r.tax_mode||'kleinunternehmer'}))));renderInventory();renderStats();renderCorrections();renderLearningInsights();renderInvoiceHistory();cloudMessage((a.data?.length||0)+' Artikel, '+(b.data?.length||0)+' Preisreferenzen und '+(c.data?.length||0)+' Rechnungen geladen.')}
 
 async function restoreCloudSession(){if(supabaseClient){await updateCloudStatus();supabaseClient.auth.onAuthStateChange(()=>updateCloudStatus())}}
 
-async function deleteMyCloudData(){if(!confirm('Lokale Daten und deine Cloud-Daten löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const u=await currentCloudUser();try{localStorage.clear();if(u&&supabaseClient){await supabaseClient.from('inventory').delete().eq('user_id',u.id);await supabaseClient.from('price_references').delete().eq('user_id',u.id);await supabaseClient.from('invoices').delete().eq('user_id',u.id)}document.getElementById('privacy-status').textContent='Daten gelöscht. Die Seite wird neu geladen.';setTimeout(()=>location.reload(),700)}catch(e){document.getElementById('privacy-status').textContent='Fehler: '+e.message}}
+async function deleteMyCloudData(){if(!confirm('Lokale Daten und deine Cloud-Daten löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const u=await currentCloudUser();try{safeStorage.clear();if(u&&supabaseClient){await supabaseClient.from('inventory').delete().eq('user_id',u.id);await supabaseClient.from('price_references').delete().eq('user_id',u.id);await supabaseClient.from('invoices').delete().eq('user_id',u.id)}document.getElementById('privacy-status').textContent='Daten gelöscht. Die Seite wird neu geladen.';setTimeout(()=>location.reload(),700)}catch(e){document.getElementById('privacy-status').textContent='Fehler: '+e.message}}
 function switchView(view, button) {
   ['check','cloud','privacy','inventory','invoices','library','stats'].forEach(v => document.getElementById(v + '-view').classList.toggle('hidden', v !== view));
   document.querySelectorAll('.nav-btn[data-view]').forEach(b => b.classList.remove('active'));
@@ -1390,13 +1418,13 @@ function switchView(view, button) {
   if (view === 'library') document.getElementById('correction-library-slot').appendChild(document.getElementById('correction-panel'));
   if (view === 'stats') renderStats();
 }
-function backupData(){try{return JSON.parse(localStorage.getItem(BACKUPS_KEY)||'[]')}catch(e){return[]}}
-function createAutoBackup(reason='Automatisch'){try{const b=backupData();b.unshift({id:Date.now().toString(36),date:new Date().toISOString(),reason,data:inventoryData()});localStorage.setItem(BACKUPS_KEY,JSON.stringify(b.slice(0,5)));renderBackups()}catch(e){console.warn('Backup konnte nicht erstellt werden',e)}}
+function backupData(){try{return JSON.parse(safeStorage.getItem(BACKUPS_KEY)||'[]')}catch(e){return[]}}
+function createAutoBackup(reason='Automatisch'){try{const b=backupData();b.unshift({id:Date.now().toString(36),date:new Date().toISOString(),reason,data:inventoryData()});safeStorage.setItem(BACKUPS_KEY,JSON.stringify(b.slice(0,5)));renderBackups()}catch(e){console.warn('Backup konnte nicht erstellt werden',e)}}
 function renderBackups(){const e=document.getElementById('backup-list'),info=document.getElementById('backup-info');if(!e)return;const b=backupData();if(info)info.textContent=b.length?`Letztes Backup: ${new Date(b[0].date).toLocaleString('de-DE')} · maximal 5 Sicherungen`:'Noch kein automatisches Backup vorhanden.';e.innerHTML=b.map(x=>`<div class="inventory-card"><b>${escapeHtml(x.reason)}</b><p>${new Date(x.date).toLocaleString('de-DE')} · ${(x.data||[]).length} Artikel</p><div class="inventory-actions"><button class="ghost" onclick="restoreBackup('${x.id}')">Wiederherstellen</button><button class="ghost" onclick="deleteBackup('${x.id}')">Löschen</button></div></div>`).join('')}
 function restoreBackup(id){const b=backupData().find(x=>x.id===id);if(!b||!confirm('Dieses Backup wiederherstellen? Aktuelle Daten werden ersetzt.'))return;createAutoBackup('Vor Wiederherstellung');saveInventoryData(b.data||[]);renderInventory();renderStats();alert('Backup wiederhergestellt.')}
-function deleteBackup(id){localStorage.setItem(BACKUPS_KEY,JSON.stringify(backupData().filter(x=>x.id!==id)));renderBackups()}
+function deleteBackup(id){safeStorage.setItem(BACKUPS_KEY,JSON.stringify(backupData().filter(x=>x.id!==id)));renderBackups()}
 
-function inventoryData(){try{return JSON.parse(localStorage.getItem(INVENTORY_KEY)||'[]')}catch(e){return[]}}
+function inventoryData(){try{return JSON.parse(safeStorage.getItem(INVENTORY_KEY)||'[]')}catch(e){return[]}}
 function saveInventoryData(list){ 
   // always keep only one copy per cloudId / id
   const deduped = [];
@@ -1410,7 +1438,7 @@ function saveInventoryData(list){
       deduped.push(item);
     }
   });
-  localStorage.setItem(INVENTORY_KEY, JSON.stringify(deduped)); 
+  safeStorage.setItem(INVENTORY_KEY, JSON.stringify(deduped)); 
 }
 function nextArticleNo(){
   const year = new Date().getFullYear();
@@ -1464,12 +1492,12 @@ function renumberArticles(){
   renderStats();
   alert('Artikelnummern wurden neu vergeben (sequentiell, älteste zuerst).');
 }
-function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{localStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:currentRecord()}))}catch(e){}},500)}
-function loadDraft(){try{const d=JSON.parse(localStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-article-no').value=r.articleNo||'';document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';prices=r.prices||[];pendingImages=r.photos||[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();renderResearchLinks();calculate()}}catch(e){}}
+function scheduleDraftSave(){clearTimeout(window._draftTimer);window._draftTimer=setTimeout(()=>{try{safeStorage.setItem('preis-check-draft',JSON.stringify({saved:new Date().toISOString(),record:currentRecord()}))}catch(e){}},500)}
+function loadDraft(){try{const d=JSON.parse(safeStorage.getItem('preis-check-draft')||'null');if(d?.record&&!currentItemId&&confirm('Gespeicherten Entwurf vom '+new Date(d.saved).toLocaleString('de-DE')+' wiederherstellen?')){const r=d.record;document.getElementById('f-name').value=r.name||'';document.getElementById('f-brand').value=r.brand||'';document.getElementById('f-category').value=r.category||'';document.getElementById('f-condition').value=r.condition||'';document.getElementById('f-defects').value=r.defects||'';document.getElementById('f-ek-total').value=r.ek||'';document.getElementById('f-sold-price').value=r.soldPrice||'';document.getElementById('f-article-no').value=r.articleNo||nextArticleNo();document.getElementById('f-platform').value=r.platform||'';document.getElementById('f-notes').value=r.notes||'';document.getElementById('f-status').value=r.status||'geplant';document.getElementById('f-size').value=r.size||'';document.getElementById('f-chest').value=r.chest||'';document.getElementById('f-length').value=r.length||'';document.getElementById('f-shoulder').value=r.shoulder||'';document.getElementById('f-sleeve').value=r.sleeve||'';document.getElementById('generated-description').value=r.description||'';prices=Array.isArray(r.prices)?r.prices:[];pendingImages=Array.isArray(r.photos)?r.photos:[];pendingImage=pendingImages[0]||null;renderPrices();renderPhotoStrip();if(pendingImage){document.getElementById('preview-img').src=pendingImage;document.getElementById('preview-img').style.display='inline-block';document.getElementById('dropzone-hint').style.display='none';document.getElementById('analyze-btn').disabled=false}renderResearchLinks();calculate()}}catch(e){}}
 
 function currentRecord(){
   const existing = currentItemId ? inventoryData().find(x => x.id === currentItemId) : null;
-  const id = currentItemId || (crypto.randomUUID ? crypto.randomUUID() : Date.now().toString(36));
+  const id = currentItemId || (uuid());
   return {
     id: id,
     cloudId: existing?.cloudId || id,
@@ -1515,7 +1543,7 @@ function saveCurrentItem(){createAutoBackup('Vor dem Speichern');const r=current
     l.unshift(r);
   }
   saveInventoryData(l);
-  localStorage.removeItem('preis-check-draft');
+  safeStorage.removeItem('preis-check-draft');
   if(supabaseClient)syncAllToCloud();
   document.getElementById('save-status').textContent='Gespeichert.';
   renderStats();
@@ -1524,7 +1552,6 @@ function loadItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;cu
 function deleteItem(id){createAutoBackup('Vor dem Löschen');saveInventoryData(inventoryData().filter(x=>x.id!==id));renderInventory();renderStats()}
 function renderInventory(){const e=document.getElementById('inventory-list'),all=inventoryData(),q=(document.getElementById('inventory-search')?.value||'').toLowerCase(),f=document.getElementById('inventory-filter')?.value||'',sort=document.getElementById('inventory-sort')?.value||'new';let l=all.filter(r=>(!q||[r.name,r.brand,r.category].join(' ').toLowerCase().includes(q))&&(!f||r.status===f));l.sort((a,b)=>sort==='name'?String(a.name||'').localeCompare(String(b.name||'')):sort==='profit'?((b.soldPrice||0)-(b.ek||0))-((a.soldPrice||0)-(a.ek||0)):String(b.updated||'').localeCompare(String(a.updated||'')));if(!l.length){e.innerHTML='<div class="muted" style="font-size:13px">Keine passenden Artikel.</div>';updateStorageInfo(all);return}e.innerHTML=l.map(r=>{const m=median(r.prices||[]),profit=(r.soldPrice||0)-(r.ek||0);const pi=Number.isInteger(r.mainPhoto)&&r.photos?.[r.mainPhoto]?r.mainPhoto:0;const img=r.photos&&r.photos[pi]?`<img src="${r.photos[pi]}" style="width:100%;height:180px;object-fit:cover;object-position:center;border-radius:8px;margin-bottom:8px;background:#161613">`:'';return `<div class="inventory-card">${img}<h3>${escapeHtml(r.articleNo||'')} ${escapeHtml(r.name||r.brand||'Unbenannter Artikel')}</h3><p>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</p><p>Status: <b>${escapeHtml(r.status||'geplant')}</b>${r.platform?' · '+escapeHtml(r.platform):''}</p><p>Marktpreis: ${fmtEUR(m)} · EK: ${fmtEUR(r.ek)}</p>${r.soldPrice?`<p>Verkauf: ${fmtEUR(r.soldPrice)} · Gewinn: ${fmtEUR(profit)}</p>`:''}<div class="inventory-actions"><button class="ghost" onclick="loadItem('${r.id}')">Öffnen</button><button class="ghost" onclick="setMainPhoto('${r.id}')">Hauptbild</button><button class="ghost" onclick="duplicateItem('${r.id}')">Duplizieren</button><button class="ghost" onclick="deleteItem('${r.id}')">Löschen</button></div></div>`}).join('');updateStorageInfo(all)}
 function duplicateItem(id){const r=inventoryData().find(x=>x.id===id);if(!r)return;const copy=JSON.parse(JSON.stringify(r));copy.id=Date.now().toString(36);delete copy.cloudId;copy.articleNo=nextArticleNo();copy.name=(copy.name||'Artikel')+' (Kopie)';copy.status='geplant';copy.soldPrice=0;copy.updated=new Date().toISOString();const l=inventoryData();l.unshift(copy);saveInventoryData(l);renderInventory();renderStats()}
-function archiveItem(id){const l=inventoryData(),r=l.find(x=>x.id===id);if(r){r.status='archiviert';r.updated=new Date().toISOString();saveInventoryData(l);renderInventory();renderStats()}}
 function setMainPhoto(id){const l=inventoryData(),r=l.find(x=>x.id===id);if(!r||!r.photos?.length)return;const n=prompt('Nummer des Hauptbilds (1–'+r.photos.length+')','1'),i=parseInt(n,10)-1;if(i>=0&&i<r.photos.length){r.mainPhoto=i;r.updated=new Date().toISOString();saveInventoryData(l);renderInventory()}}
 function updateStorageInfo(list){const bytes=new Blob([JSON.stringify(list)]).size,mb=(bytes/1024/1024).toFixed(2),pct=Math.min(100,bytes/5000000*100),el=document.getElementById('storage-info');if(el)el.innerHTML=`Lokaler Speicher: ca. ${mb} MB <div class="storage-bar"><span style="width:${pct}%"></span></div>`}
 
@@ -1533,17 +1560,17 @@ function csvCell(v){return '"'+String(v??'').replaceAll('"','""')+'"'}
 function exportBackup(){const blob=new Blob([JSON.stringify({inventory:inventoryData(),corrections:loadCorrections(),exported:new Date().toISOString()},null,2)],{type:'application/json'});downloadBlob(blob,'preis-check-backup.json')}
 function importBackup(file){if(!file)return;const reader=new FileReader();reader.onload=()=>{try{const d=JSON.parse(reader.result);if(Array.isArray(d.inventory))saveInventoryData(d.inventory);if(Array.isArray(d.corrections))saveCorrections(d.corrections);renderInventory();renderStats();renderCorrections();alert('Backup importiert.')}catch(e){alert('Backup konnte nicht gelesen werden.')}};reader.readAsText(file)}
 function taxFilteredItems(){const mode=document.getElementById('tax-period')?.value||'all',now=new Date();return inventoryData().filter(r=>{if(mode==='all')return true;const d=new Date(r.updated||0);return mode==='year'?d.getFullYear()===now.getFullYear():d.getFullYear()===now.getFullYear()&&d.getMonth()===now.getMonth()})}
-function exportTaxExcel(){if(!window.XLSX){alert('Excel-Modul noch nicht geladen. Bitte Internetverbindung prüfen.');return}const list=taxFilteredItems(),sold=list.filter(r=>Number(r.soldPrice)>0);let invoices=[];try{invoices=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(e){}const invRows=[['Rechnungsnummer','Datum','Kunde','Artikel','Betrag','Status','Steuerregelung'],...invoices.map(r=>[r.number||'',r.date||'',r.customer||'',r.item||'',Number(r.amount)||0,r.status||'offen',r.taxMode||'kleinunternehmer'])];const inventoryRows=[['Artikelnummer','Datum','Status','Artikel','Marke','Kategorie','Zustand','Plattform','Menge','Gesamt-EK inkl. Kosten','Verkaufspreis','Gewinn','Notizen'],...list.map(r=>[r.articleNo||r.id,new Date(r.updated||Date.now()).toLocaleDateString('de-DE'),r.status||'geplant',r.name||'',r.brand||'',r.category||'',r.condition||'',r.platform||'',1,Number(r.ek)||0,Number(r.soldPrice)||0,Number(r.soldPrice||0)-Number(r.ek||0),r.notes||''])];const salesRows=[['Datum','Artikelnummer','Artikel','Marke','Plattform','Verkaufspreis','Gesamt-EK','Gewinn','Status'],...sold.map(r=>[new Date(r.updated||Date.now()).toLocaleDateString('de-DE'),r.articleNo||r.id,r.name||'',r.brand||'',r.platform||'',Number(r.soldPrice)||0,Number(r.ek)||0,Number(r.soldPrice||0)-Number(r.ek||0),r.status||'verkauft'])];const refRows=[['Marke','Artikel','Kategorie','Zustand','Preis von','Preis bis','Datum'],...loadCorrections().map(r=>[r.brand||'',r.name||'',r.category||'',r.condition||'',Number(r.low)||0,Number(r.high)||0,r.date?new Date(r.date).toLocaleDateString('de-DE'):''])];const months={};sold.forEach(r=>{const key=new Date(r.updated||Date.now()).toLocaleDateString('de-DE',{month:'2-digit',year:'numeric'});if(!months[key])months[key]={count:0,revenue:0,ek:0,profit:0};months[key].count++;months[key].revenue+=Number(r.soldPrice)||0;months[key].ek+=Number(r.ek)||0;months[key].profit+=(Number(r.soldPrice)||0)-(Number(r.ek)||0)});const monthRows=[['Monat','Verkäufe','Umsatz','EK','Gewinn'],...Object.entries(months).map(([m,x])=>[m,x.count,x.revenue,x.ek,x.profit])];const wb=XLSX.utils.book_new();[['Inventar',inventoryRows],['Verkäufe',salesRows],['Rechnungen',invRows],['Preiswissen',refRows],['Monatsübersicht',monthRows]].forEach(([name,rows])=>{const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=rows[0].map((_,i)=>({wch:i===0?18:22}));XLSX.utils.book_append_sheet(wb,ws,name)});XLSX.writeFile(wb,'warenwirtschaft-steuerexport.xlsx')}
+function exportTaxExcel(){if(!window.XLSX){alert('Excel-Modul noch nicht geladen. Bitte Internetverbindung prüfen.');return}const list=taxFilteredItems(),sold=list.filter(r=>Number(r.soldPrice)>0);let invoices=[];try{invoices=JSON.parse(safeStorage.getItem('preis-check-invoices')||'[]')}catch(e){}const invRows=[['Rechnungsnummer','Datum','Kunde','Artikel','Betrag','Status','Steuerregelung'],...invoices.map(r=>[r.number||'',r.date||'',r.customer||'',r.item||'',Number(r.amount)||0,r.status||'offen',r.taxMode||'kleinunternehmer'])];const inventoryRows=[['Artikelnummer','Datum','Status','Artikel','Marke','Kategorie','Zustand','Plattform','Menge','Gesamt-EK inkl. Kosten','Verkaufspreis','Gewinn','Notizen'],...list.map(r=>[r.articleNo||r.id,new Date(r.updated||Date.now()).toLocaleDateString('de-DE'),r.status||'geplant',r.name||'',r.brand||'',r.category||'',r.condition||'',r.platform||'',1,Number(r.ek)||0,Number(r.soldPrice)||0,Number(r.soldPrice||0)-Number(r.ek||0),r.notes||''])];const salesRows=[['Datum','Artikelnummer','Artikel','Marke','Plattform','Verkaufspreis','Gesamt-EK','Gewinn','Status'],...sold.map(r=>[new Date(r.updated||Date.now()).toLocaleDateString('de-DE'),r.articleNo||r.id,r.name||'',r.brand||'',r.platform||'',Number(r.soldPrice)||0,Number(r.ek)||0,Number(r.soldPrice||0)-Number(r.ek||0),r.status||'verkauft'])];const refRows=[['Marke','Artikel','Kategorie','Zustand','Preis von','Preis bis','Datum'],...loadCorrections().map(r=>[r.brand||'',r.name||'',r.category||'',r.condition||'',Number(r.low)||0,Number(r.high)||0,r.date?new Date(r.date).toLocaleDateString('de-DE'):''])];const months={};sold.forEach(r=>{const key=new Date(r.updated||Date.now()).toLocaleDateString('de-DE',{month:'2-digit',year:'numeric'});if(!months[key])months[key]={count:0,revenue:0,ek:0,profit:0};months[key].count++;months[key].revenue+=Number(r.soldPrice)||0;months[key].ek+=Number(r.ek)||0;months[key].profit+=(Number(r.soldPrice)||0)-(Number(r.ek)||0)});const monthRows=[['Monat','Verkäufe','Umsatz','EK','Gewinn'],...Object.entries(months).map(([m,x])=>[m,x.count,x.revenue,x.ek,x.profit])];const wb=XLSX.utils.book_new();[['Inventar',inventoryRows],['Verkäufe',salesRows],['Rechnungen',invRows],['Preiswissen',refRows],['Monatsübersicht',monthRows]].forEach(([name,rows])=>{const ws=XLSX.utils.aoa_to_sheet(rows);ws['!cols']=rows[0].map((_,i)=>({wch:i===0?18:22}));XLSX.utils.book_append_sheet(wb,ws,name)});XLSX.writeFile(wb,'warenwirtschaft-steuerexport.xlsx')}
 
 function downloadBlob(blob,name){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1000)}
-function invoiceSettings(){return JSON.parse(localStorage.getItem('preis-check-invoice-settings')||'{}')}
-function saveInvoiceSettings(){const d={sellerName:document.getElementById('inv-seller-name').value,sellerTax:document.getElementById('inv-seller-tax').value,sellerAddress:document.getElementById('inv-seller-address').value,sellerEmail:document.getElementById('inv-seller-email').value};localStorage.setItem('preis-check-invoice-settings',JSON.stringify(d))}
-function nextInvoiceNumber(){let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(e){}const nums=h.map(x=>parseInt(String(x.number||'').match(/(\d+)$/)?.[1]||0,10));return 'RE-'+new Date().getFullYear()+'-'+String(Math.max(0,...nums)+1).padStart(4,'0')}
+function invoiceSettings(){return JSON.parse(safeStorage.getItem('preis-check-invoice-settings')||'{}')}
+function saveInvoiceSettings(){const d={sellerName:document.getElementById('inv-seller-name').value,sellerTax:document.getElementById('inv-seller-tax').value,sellerAddress:document.getElementById('inv-seller-address').value,sellerEmail:document.getElementById('inv-seller-email').value};safeStorage.setItem('preis-check-invoice-settings',JSON.stringify(d))}
+function nextInvoiceNumber(){let h=[];try{h=JSON.parse(safeStorage.getItem('preis-check-invoices')||'[]')}catch(e){}const nums=h.map(x=>parseInt(String(x.number||'').match(/(\d+)$/)?.[1]||0,10));return 'RE-'+new Date().getFullYear()+'-'+String(Math.max(0,...nums)+1).padStart(4,'0')}
 function renderInvoiceItems(){const sel=document.getElementById('inv-item');if(!sel)return;const items=inventoryData().filter(x=>Number(x.soldPrice)>0);sel.innerHTML='<option value="">– verkauften Artikel auswählen –</option>'+items.map(x=>`<option value="${x.id}">${escapeHtml(x.name||x.brand||'Artikel')} · ${fmtEUR(x.soldPrice)}</option>`).join('');const st=invoiceSettings();[['inv-seller-name','sellerName'],['inv-seller-tax','sellerTax'],['inv-seller-address','sellerAddress'],['inv-seller-email','sellerEmail']].forEach(([id,k])=>{if(st[k])document.getElementById(id).value=st[k]});if(!document.getElementById('inv-number').value)document.getElementById('inv-number').value=nextInvoiceNumber();if(!document.getElementById('inv-date').value)document.getElementById('inv-date').value=new Date().toISOString().slice(0,10)}
 function renderInvoicePreview(){const id=document.getElementById('inv-item').value;const r=inventoryData().find(x=>x.id===id);if(r){document.getElementById('inv-customer-name').value=document.getElementById('inv-customer-name').value||'';document.getElementById('inv-customer-email').value=document.getElementById('inv-customer-email').value||''}}
-function generateInvoice(){saveInvoiceSettings();const id=document.getElementById('inv-item').value,r=inventoryData().find(x=>x.id===id);if(!r){alert('Bitte zuerst einen verkauften Artikel auswählen.');return}const seller=document.getElementById('inv-seller-name').value.trim(),customer=document.getElementById('inv-customer-name').value.trim()||'Kunde';const number=document.getElementById('inv-number').value.trim(),date=document.getElementById('inv-date').value,price=Number(r.soldPrice)||0;const html=`<div class="invoice-paper" id="invoice-paper"><div style="display:flex;justify-content:space-between;gap:20px;"><div><h2 style="color:#222;text-transform:none;font-size:22px;">${escapeHtml(seller||'Rechnungsteller')}</h2><div>${escapeHtml(document.getElementById('inv-seller-address').value)}</div><div>${escapeHtml(document.getElementById('inv-seller-email').value)}</div><div>${escapeHtml(document.getElementById('inv-seller-tax').value)}</div></div><div><b>RECHNUNG</b><br>Nr.: ${escapeHtml(number)}<br>Datum: ${escapeHtml(date)}</div></div><hr><p><b>Rechnung an:</b><br>${escapeHtml(customer)}<br>${escapeHtml(document.getElementById('inv-customer-address').value)}<br>${escapeHtml(document.getElementById('inv-customer-email').value)}</p><table><thead><tr><th>Beschreibung</th><th>Menge</th><th>Preis</th></tr></thead><tbody><tr><td>${escapeHtml(r.name||r.brand||'Artikel')}<br><small>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</small></td><td>1</td><td>${fmtEUR(price)}</td></tr></tbody></table><p class="invoice-total">Gesamtbetrag: ${fmtEUR(price)}</p><p><b>Status:</b> ${escapeHtml(document.getElementById('inv-status').value)}</p><p>Zahlungsart: ${escapeHtml(document.getElementById('inv-payment').value||'nicht angegeben')}</p><p style="font-size:11px;margin-top:32px;">${document.getElementById('inv-tax-mode').value==='kleinunternehmer'?'Gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen.':(document.getElementById('inv-seller-tax').value?'Steuerangaben: '+escapeHtml(document.getElementById('inv-seller-tax').value):'Bitte Steuerangaben ergänzen.')}</p></div>`;document.getElementById('invoice-preview').innerHTML=html;let hist=[];try{hist=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(e){};hist.unshift({number,date,customer,item:r.name||r.brand||'Artikel',amount:price,status:document.getElementById('inv-status').value,taxMode:document.getElementById('inv-tax-mode').value,address:document.getElementById('inv-customer-address').value,email:document.getElementById('inv-customer-email').value,payment:document.getElementById('inv-payment').value});localStorage.setItem('preis-check-invoices',JSON.stringify(hist.slice(0,100)));renderInvoiceHistory()}
-function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(localStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
-function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
+function generateInvoice(){saveInvoiceSettings();const id=document.getElementById('inv-item').value,r=inventoryData().find(x=>x.id===id);if(!r){alert('Bitte zuerst einen verkauften Artikel auswählen.');return}const seller=document.getElementById('inv-seller-name').value.trim(),customer=document.getElementById('inv-customer-name').value.trim()||'Kunde';const number=document.getElementById('inv-number').value.trim(),date=document.getElementById('inv-date').value,price=Number(r.soldPrice)||0;const html=`<div class="invoice-paper" id="invoice-paper"><div style="display:flex;justify-content:space-between;gap:20px;"><div><h2 style="color:#222;text-transform:none;font-size:22px;">${escapeHtml(seller||'Rechnungsteller')}</h2><div>${escapeHtml(document.getElementById('inv-seller-address').value)}</div><div>${escapeHtml(document.getElementById('inv-seller-email').value)}</div><div>${escapeHtml(document.getElementById('inv-seller-tax').value)}</div></div><div><b>RECHNUNG</b><br>Nr.: ${escapeHtml(number)}<br>Datum: ${escapeHtml(date)}</div></div><hr><p><b>Rechnung an:</b><br>${escapeHtml(customer)}<br>${escapeHtml(document.getElementById('inv-customer-address').value)}<br>${escapeHtml(document.getElementById('inv-customer-email').value)}</p><table><thead><tr><th>Beschreibung</th><th>Menge</th><th>Preis</th></tr></thead><tbody><tr><td>${escapeHtml(r.name||r.brand||'Artikel')}<br><small>${escapeHtml([r.brand,r.category,r.condition].filter(Boolean).join(' · '))}</small></td><td>1</td><td>${fmtEUR(price)}</td></tr></tbody></table><p class="invoice-total">Gesamtbetrag: ${fmtEUR(price)}</p><p><b>Status:</b> ${escapeHtml(document.getElementById('inv-status').value)}</p><p>Zahlungsart: ${escapeHtml(document.getElementById('inv-payment').value||'nicht angegeben')}</p><p style="font-size:11px;margin-top:32px;">${document.getElementById('inv-tax-mode').value==='kleinunternehmer'?'Gemäß § 19 UStG wird keine Umsatzsteuer ausgewiesen.':(document.getElementById('inv-seller-tax').value?'Steuerangaben: '+escapeHtml(document.getElementById('inv-seller-tax').value):'Bitte Steuerangaben ergänzen.')}</p></div>`;document.getElementById('invoice-preview').innerHTML=html;let hist=[];try{hist=JSON.parse(safeStorage.getItem('preis-check-invoices')||'[]')}catch(e){};hist.unshift({number,date,customer,item:r.name||r.brand||'Artikel',amount:price,status:document.getElementById('inv-status').value,taxMode:document.getElementById('inv-tax-mode').value,address:document.getElementById('inv-customer-address').value,email:document.getElementById('inv-customer-email').value,payment:document.getElementById('inv-payment').value});safeStorage.setItem('preis-check-invoices',JSON.stringify(hist.slice(0,100)));renderInvoiceHistory()}
+function renderInvoiceHistory(){const e=document.getElementById('invoice-history-list');if(!e)return;let h=[];try{h=JSON.parse(safeStorage.getItem('preis-check-invoices')||'[]')}catch(x){}e.innerHTML=h.length?h.map(x=>`<div class="stat-line"><span class="label">${escapeHtml(x.number)} · ${escapeHtml(x.customer||'Kunde')} · ${escapeHtml(x.item)}</span><span class="value">${fmtEUR(x.amount)} · ${escapeHtml(x.date||'')} · ${escapeHtml(x.status||'offen')}</span></div>`).join(''):'<span class="muted" style="font-size:12px">Noch keine Rechnungen gespeichert.</span>'}
+function printInvoice(){if(!document.getElementById('invoice-paper'))generateInvoice();setTimeout(()=>{const p=document.getElementById('invoice-paper');if(!p)return;const w=window.open('','_blank');if(!w){alert('Pop-ups sind blockiert – bitte Pop-ups für diese Seite erlauben, um die Rechnung zu drucken oder als PDF zu speichern.');return}w.document.write('<html><head><title>Rechnung</title><style>body{font-family:Arial;margin:30px}.invoice-paper{padding:20px}.invoice-paper table{width:100%;border-collapse:collapse}.invoice-paper th,.invoice-paper td{padding:8px;border-bottom:1px solid #ccc;text-align:left}.invoice-total{text-align:right;font-size:18px;font-weight:bold}</style></head><body>'+p.outerHTML+'</body></html>');w.document.close();w.focus();w.print()},100)}
 
 function newItem(){currentItemId=null;prices=[];pendingImages=[];pendingImage=null;['f-name','f-brand','f-category','f-defects','f-ek-total','f-sold-price','f-size','f-chest','f-length','f-shoulder','f-sleeve','generated-description'].forEach(id=>document.getElementById(id).value='');document.getElementById('f-condition').value='';document.getElementById('f-platform').value='';document.getElementById('f-article-no').value = nextArticleNo();renderPrices();renderPhotoStrip();document.getElementById('preview-img').style.display='none';document.getElementById('dropzone-hint').style.display='block'}
 function learnedRange(brand,category,condition){const b=(brand||'').toLowerCase(),c=(category||'').toLowerCase(),co=(condition||'').toLowerCase();const list=loadCorrections().map(x=>{const ib=(x.brand||'').toLowerCase(),ic=(x.category||'').toLowerCase(),io=(x.condition||'').toLowerCase();let score=0;if(b&&ib===b)score+=5;else if(b&&ib.includes(b)||b&&ib&&b.includes(ib))score+=3;if(c&&ic===c)score+=5;else if(c&&ic.includes(c)||c&&ic&&c.includes(ic))score+=3;if(co&&io===co)score+=2;return {x,score}}).filter(x=>x.score>=3).sort((a,b)=>b.score-a.score).slice(0,12);if(!list.length)return null;const weights=list.map(x=>x.score),sum=weights.reduce((a,v)=>a+v,0);return {low:list.reduce((a,v,i)=>a+v.x.low*weights[i],0)/sum,high:list.reduce((a,v,i)=>a+(v.x.high||v.x.low)*weights[i],0)/sum,count:list.length}}
@@ -1677,6 +1704,7 @@ if(!document.getElementById('f-article-no').value || document.getElementById('f-
 updateCurrentModelBadge();
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
+loadDraft();
 
 // ========== AUTOMATISCHE TITEL-METADATEN (Vinted 64 Zeichen) ==========
 function generateSmartTitle() {
@@ -1774,5 +1802,5 @@ function hideTitleMeta() {
   if (p) p.style.display = 'none';
 }
 </script>
-<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db63fbece7f48c',t:'MTc4NDQ4MTU2MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||a.contentWindow.document;if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a1db61eb2ef9f48c',t:'MTc4NDQ4MTQ3Ng=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
