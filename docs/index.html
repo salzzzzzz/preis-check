@@ -705,9 +705,15 @@ async function generateDescription() {
     // Groq läuft meist über den Supabase-Proxy → Key optional
     const b=document.getElementById('desc-btn'),st=document.getElementById('desc-status');
     b.disabled=true; st.textContent='Generiere Beschreibung…';
-    try { await generateDescriptionGroq(key || ''); } catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; } finally { if (!st.textContent || st.textContent.includes('Fehler')) st.textContent = 'Fertig.'; }
-    catch(e) { document.getElementById('generated-description').value=generateLocalDescription(); st.textContent='Groq-Fehler · lokale Beschreibung erstellt.'; }
-    finally { b.disabled=false; }
+    try {
+      await generateDescriptionGroq(key || '');
+      st.textContent='Fertig.';
+    } catch(e) {
+      document.getElementById('generated-description').value=generateLocalDescription();
+      st.textContent='Groq-Fehler · lokale Beschreibung erstellt.';
+    } finally {
+      b.disabled=false;
+    }
     return;
   }
   if (!key) { openSettings(); return; }
