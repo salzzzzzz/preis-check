@@ -181,6 +181,9 @@
   .invoice-paper th,.invoice-paper td { text-align:left; padding:8px 4px; border-bottom:1px solid #ccc; font-size:12px; }
   .invoice-total { text-align:right; font-size:18px; font-weight:bold; }
   .offline-banner { background:rgba(217,164,65,.12);border:1px solid var(--gold);border-radius:8px;padding:9px 12px;font-size:12px;margin-bottom:14px; }
+  .advanced-panel { display:none; }
+  .advanced-panel.open { display:block; }
+  .advanced-toggle { width:100%;margin:-4px 0 12px;padding:10px;background:transparent;border:1px dashed var(--card-border);border-radius:8px;color:var(--ink-muted);cursor:pointer;font-size:12px; }
   .inventory-toolbar { display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px; }
   .inventory-toolbar input,.inventory-toolbar select { flex:1;min-width:150px; }
   .storage-bar { height:6px;background:#161613;border-radius:5px;overflow:hidden;margin-top:6px; }
@@ -225,6 +228,36 @@
     .inventory-card{min-width:0;}.inventory-actions{flex-wrap:wrap;}.inventory-actions button{flex:1;}
     .photo-strip img{width:62px;height:62px;}
   }
+
+  /* Clean-Dark-UI */
+  body { background:linear-gradient(135deg,#11110f 0%,#1a1916 100%); }
+  .wrap { max-width:920px; }
+  .sidebar { box-shadow:0 12px 30px rgba(0,0,0,.22); }
+  .panel { background:rgba(36,36,32,.92); border-color:#45433c; box-shadow:0 8px 20px rgba(0,0,0,.12); padding:20px; }
+  .panel h2 { font-size:15px; letter-spacing:.02em; margin-bottom:14px; }
+  .top-row h1 { font-size:28px; }
+  hr.divider { margin:18px 0 24px; background:#45433c; }
+  .warn-box,.offline-banner { border-color:rgba(217,164,65,.45); background:rgba(217,164,65,.07); }
+  button.primary { box-shadow:0 4px 12px rgba(217,164,65,.18); }
+  button.primary:hover { filter:brightness(1.08); transform:translateY(-1px); }
+  button.ghost:hover { background:#30302a; color:var(--ink); }
+  input:focus,select:focus,textarea:focus { outline:none; border-color:var(--gold); box-shadow:0 0 0 2px rgba(217,164,65,.12); }
+  .metric { background:linear-gradient(145deg,#1b1b18,#24241f); border-color:#48463e; padding:16px; }
+  .metric strong { font-size:22px; color:var(--ink); }
+  #market-price,#res-market { color:var(--gold); font-size:18px; }
+  .price-chip { background:#191916; border-color:#4a473e; padding:7px 11px; }
+  .verdict { padding:24px; box-shadow:0 6px 18px rgba(0,0,0,.12); }
+  .verdict .verdict-label { font-size:24px; }
+  .inventory-card { background:linear-gradient(145deg,#1b1b18,#24241f); border-color:#48463e; padding:14px; transition:transform .15s ease,border-color .15s ease; }
+  .inventory-card:hover { transform:translateY(-2px); border-color:var(--gold); }
+  .inventory-card h3 { font-size:15px; line-height:1.35; }
+  .inventory-card p { line-height:1.45; }
+  .field-label { font-size:10px; }
+  .research-btn { min-height:44px; }
+  .dropzone { background:rgba(0,0,0,.08); }
+  .dropzone:hover { border-color:var(--gold); }
+  .sidebar-title { color:var(--gold); }
+  @media(max-width:760px){.top-row h1{font-size:22px}.panel{padding:14px}.metric strong{font-size:19px}.verdict .verdict-label{font-size:20px}}
 </style>
 </head>
 <body>
@@ -305,7 +338,8 @@
     <label class="field-label" style="margin-top:8px;">Interne Notizen</label><textarea id="f-notes" rows="2" style="width:100%;background:#161613;border:1px solid var(--card-border);border-radius:6px;padding:8px 10px;color:var(--ink);font-size:13px;" placeholder="z.B. liegt im Karton 3"></textarea>
   </div>
 
-  <div class="panel">
+  <button class="advanced-toggle" id="advanced-toggle" onclick="toggleAdvanced()">＋ Weitere Angaben anzeigen</button>
+  <div class="panel advanced-panel">
     <h2>3 · Vergleichspreise recherchieren</h2>
     <div class="research-grid" id="research-links"></div>
   </div>
@@ -395,7 +429,7 @@
     <button class="ghost" style="margin-top:8px;" onclick="copyDescription()">Kopieren</button>
   </div>
 
-  <div class="panel">
+  <div class="panel advanced-panel">
     <h2>8 · Ziel-Marge für die Empfehlung</h2>
     <div class="slider-row">
       <input type="range" id="margin-threshold" min="0" max="150" step="5" value="50" oninput="calculate()" />
@@ -982,6 +1016,7 @@ async function loadCloudToLocal(){const u=await currentCloudUser();if(!u){cloudM
 async function restoreCloudSession(){if(supabaseClient){await updateCloudStatus();supabaseClient.auth.onAuthStateChange(()=>updateCloudStatus())}}
 
 async function deleteMyCloudData(){if(!confirm('Lokale Daten und deine Cloud-Daten löschen? Dieser Vorgang kann nicht rückgängig gemacht werden.'))return;const u=await currentCloudUser();try{localStorage.clear();if(u&&supabaseClient){await supabaseClient.from('inventory').delete().eq('user_id',u.id);await supabaseClient.from('price_references').delete().eq('user_id',u.id);await supabaseClient.from('invoices').delete().eq('user_id',u.id)}document.getElementById('privacy-status').textContent='Daten gelöscht. Die Seite wird neu geladen.';setTimeout(()=>location.reload(),700)}catch(e){document.getElementById('privacy-status').textContent='Fehler: '+e.message}}
+function toggleAdvanced(){const panels=document.querySelectorAll('#check-view .advanced-panel'),open=Array.from(panels).some(x=>x.classList.contains('open'));panels.forEach(x=>x.classList.toggle('open',!open));const b=document.getElementById('advanced-toggle');if(b)b.textContent=open?'＋ Weitere Angaben anzeigen':'− Weniger Angaben anzeigen'}
 function switchView(view, button) {
   ['check','cloud','privacy','inventory','invoices','library','stats'].forEach(v => document.getElementById(v + '-view').classList.toggle('hidden', v !== view));
   document.querySelectorAll('.nav-btn[data-view]').forEach(b => b.classList.remove('active'));
@@ -1167,5 +1202,5 @@ if(!document.getElementById('f-article-no').value)document.getElementById('f-art
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a211d577ed0de0db',t:'MTc4NTA1MjQ0MA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a211db0ddbd8e0db',t:'MTc4NTA1MjY2OQ=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
