@@ -1,4 +1,5 @@
-<!DOCTYPE html>
+
+ <!DOCTYPE html>
 <html lang="de">
 <head>
 <meta charset="UTF-8" />
@@ -667,7 +668,7 @@ function generateLocalDescription() {
 async function groqRequest(key, prompt, images=[], kind='photo') {
   if (!supabaseClient) throw new Error('Supabase ist nicht geladen.');
   const { data, error } = await supabaseClient.functions.invoke('ai-proxy', { body: { provider: 'groq', prompt, images, kind } });
-  if (error) throw new Error(error.message || 'AI-Proxy-Fehler');
+  if (error) { let detail=error.message||'AI-Proxy-Fehler'; try { const body=await error.context?.json(); detail=body?.error||detail; } catch(e) {} throw new Error(detail); }
   if (data?.error) throw new Error(data.error);
   return data?.text || '';
 }
@@ -1227,5 +1228,5 @@ if(!document.getElementById('f-article-no').value)document.getElementById('f-art
 document.querySelectorAll('#check-view input, #check-view select, #check-view textarea').forEach(el=>el.addEventListener('input',scheduleDraftSave));
 calculate();
 </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a2121f4b38d6f9c2',t:'MTc4NTA1NTQ2NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+</body>
 </html>
